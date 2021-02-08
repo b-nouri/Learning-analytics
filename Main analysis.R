@@ -108,15 +108,26 @@ formative_content <- content_df %>%
                            ifelse(is.na(possible_score) & content_type == "resource/x-turnitin-assignment","unknown","graded")))
 
 
-formative_content <- as_tibble(formative_content)
-
-
 course_formative <- formative_content %>%
   mutate(test_score_type = as.factor(test_score_type)) %>%
-  select(course_pk,test_score_type) %>%
-  group_by(course_pk,test_score_type) %>%
+  select(course_pk,test_score_type,course_id) %>%
+  group_by(course_pk,test_score_type,course_id) %>%
   dplyr::summarise(n=n()) 
 
+g <- course_formative %>%
+  filter(test_score_type == "graded")
 
-ggplot(course_formative[,],aes(x=course_pk,color=test_score_type,fill=test_score_type)) +
-  geom_bar()
+graded_formative <- course_formative %>%
+  filter(course_pk %in% g$course_pk) %>%
+  arrange(n)
+
+gf <- graded_formative %>%
+  group_by(course_pk) %>%
+  dplyr::summarise(n=sum(n)) %>%
+  filter(n>25)
+
+graded_formative1 <- graded_formative %>%
+  filter(course_pk %in% gf$course_pk)
+
+ggplot(graded_formative,aes(x=as.factor(course_pk),y=n,color=test_score_type,fill=test_score_type)) +
+  geom_col()
