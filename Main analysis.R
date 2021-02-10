@@ -120,24 +120,24 @@ course_formative <- formative_content %>%
   mutate(test_score_type = as.factor(test_score_type)) %>%
   select(course_pk,test_score_type,course_id) %>%
   group_by(course_pk,test_score_type,course_id) %>%
-  dplyr::summarise(n=n()) 
+  dplyr::summarise(number_of_tests=n()) 
 
 g <- course_formative %>%
   filter(test_score_type == "graded")
 
 graded_formative <- course_formative %>%
   filter(course_pk %in% g$course_pk) %>%
-  arrange(n)
+  arrange(number_of_tests)
 
 gf <- graded_formative %>%
   group_by(course_pk) %>%
-  dplyr::summarise(n=sum(n)) %>%
-  filter(n>25)
+  dplyr::summarise(number_of_tests=sum(number_of_tests)) %>%
+  filter(number_of_tests>25)
 
 graded_formative1 <- graded_formative %>%
   filter(course_pk %in% gf$course_pk)
 
-ggplot(graded_formative,aes(x=as.factor(course_pk),y=n,color=test_score_type,fill=test_score_type)) +
+ggplot(graded_formative,aes(x=as.factor(course_pk),y=number_of_tests,color=test_score_type,fill=test_score_type)) +
   geom_col()
 
 rm(g)
@@ -145,7 +145,7 @@ rm(gf)
 
 levels(as.factor(sap$program))
 
-#--------Dividing Programs-------###
+#--------Aggregating Programs-------###
 Course_students_df <- sap %>%
   group_by(program,course_pk,opo_id,course_name) %>%
   dplyr::summarize(n_students_course=n())
@@ -193,4 +193,25 @@ ggplot(programs_df[(programs_df$n_students_course>100 & programs_df$n_courses_pr
     legend.key.width = unit(0.2,"cm")  
   )
 
+
+#----Aggregating events with programs----#
+programs_formatives <- merge(graded_formative,programs_df)
+
+g <- programs_df[(programs_df$n_students_course>100 & programs_df$n_courses_program > 2),] %>%
+  select(program) %>%
+  distinct(program)
+
+selected_program_formatives <- programs_formatives[programs_formatives$program %in% g$program,]
+
+ggplot(selected_program_formatives,aes(x=as.factor(course_name),y=number_of_tests,color=test_score_type,fill=test_score_type)) +
+  geom_col() + facet_wrap(~program, scales = "free", ncol = 3,nrow=2) +
+  theme(
+    axis.text.x = element_text(angle = 75, vjust = 1, hjust=1),
+    # Change legend background color
+    legend.background = element_rect(fill = "darkgray"),
+    legend.key = element_rect(fill = "lightblue", color = NA),
+    # Change legend key size and key width
+    legend.key.size = unit(0.4, "cm"),
+    legend.key.width = unit(0.2,"cm")  
+  )
 
