@@ -23,7 +23,7 @@ SAP_ <- read.csv("c:/ALCAPAS/Anon_SAP_data.dsv",
                       sep="\t", quote = "",na.strings = c("", "NA"),header = F)
 
 colnames(SAP_) <- c("course_id", "opo_id", "course_name","user_pk",
-                         "type","course_description","current_phase","score_january","score_june","final_score(kf)")
+                         "type of program","program","current_phase","score_january","score_june","final_score(kf)")
 
 sap <- SAP_[2:nrow(SAP_),]
 colnames(sap)[1] <- "course_pk"
@@ -47,6 +47,7 @@ colnames(contents)[5] <- "content_pk"
 rm(attempts_)
 rm(sessions_)
 rm(SAP_)
+
 ####-----------Preprocessing Data-----------###
 attempts <- sapply(attempts, function(x) {str_replace_all(x, '"', "")})
 attempts <- as.data.frame(attempts)
@@ -57,6 +58,16 @@ events <- as.data.frame(events)
 sessions <- sapply(sessions, function(x) {str_replace_all(x, '"', "")})
 sessions <- as.data.frame(sessions)
 
+
+sap <- sapply(sap, function(x) {str_replace_all(x, '"', "")})
+sap <- as.data.frame(sap)
+sap <- sap %>%
+  mutate(campus = str_extract(sap$program,"\\(([^)]*)\\)+$"))
+levels(as.factor(sap$campus))
+
+sap <- sap %>%
+  mutate(program_name = gsub("\\(([^)]*)\\)+$","",sap$program))
+levels(as.factor(sap$program_name))
 ###------Cleaning data----#########
 events <- events %>% mutate(time = dmy_hms(timestamp)) %>%
   mutate(year = year(time)) %>%
@@ -74,7 +85,6 @@ content_df <- distinct(contents, content_pk, .keep_all = TRUE)
 
 event_df <- join(events,content_df,
                  type = "inner", by = "content_pk")
-#rm(events)
 
 event_df <- join(event_df,sap,
                  type = "inner", by = c("course_pk","user_pk"))
@@ -96,8 +106,6 @@ ggplot(df_test,aes(x=academic_week,color = score_class,fill=score_class)) +
 
 ggplot(df_test,aes(x=final_score)) +
   geom_boxplot()
-
-
 
 ###---------Courses with formative tests---------####
 formative_content <- content_df %>%
@@ -131,3 +139,58 @@ graded_formative1 <- graded_formative %>%
 
 ggplot(graded_formative,aes(x=as.factor(course_pk),y=n,color=test_score_type,fill=test_score_type)) +
   geom_col()
+
+rm(g)
+rm(gf)
+
+levels(as.factor(sap$program))
+
+#--------Dividing Programs-------###
+Course_students_df <- sap %>%
+  group_by(program,course_pk,opo_id,course_name) %>%
+  dplyr::summarize(n_students_course=n())
+
+programs_courses_df <- sap %>%
+  distinct(opo_id,course_name,program) %>%
+  group_by(program) %>%
+  dplyr::summarize(n_courses_program=n())
+
+
+
+ggplot(programs_courses_df[programs_courses_df$n_courses_program > 3,],aes(x=program,y=n_courses_program,fill = program)) +
+  geom_col() +
+  theme(legend.position = "none",
+    axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)
+  )
+
+programs_df <- merge(Course_students_df, programs_courses_df)
+rm(Course_students_df)
+
+
+#courses having more than 100 students - grouped by programs
+ggplot(programs_df[(programs_df$n_students_course>100 & programs_df$n_courses_program > 2),],aes(x=program,y=n_students_course)) +
+  geom_col() + guides(col = guide_legend(nrow = 50))+ 
+  theme(
+    axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
+    # Change legend background color
+    legend.background = element_rect(fill = "darkgray"),
+    legend.key = element_rect(fill = "lightblue", color = NA),
+    # Change legend key size and key width
+    legend.key.size = unit(0.4, "cm"),
+    legend.key.width = unit(0.2,"cm")  
+    )
+
+
+ggplot(programs_df[(programs_df$n_students_course>100 & programs_df$n_courses_program > 2),],aes(x=program,y=n_students_course,color=course_name,fill=course_name)) +
+  geom_col() + guides(col = guide_legend(nrow = 50))+ 
+  theme(
+    axis.text.x = element_text(angle = 30, vjust = 1, hjust=1),
+    # Change legend background color
+    legend.background = element_rect(fill = "darkgray"),
+    legend.key = element_rect(fill = "lightblue", color = NA),
+    # Change legend key size and key width
+    legend.key.size = unit(0.4, "cm"),
+    legend.key.width = unit(0.2,"cm")  
+  )
+
+
