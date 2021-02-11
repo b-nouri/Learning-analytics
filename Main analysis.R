@@ -157,7 +157,7 @@ programs_courses_df <- sap %>%
 
 
 
-ggplot(programs_courses_df[programs_courses_df$n_courses_program > 3,],aes(x=program,y=n_courses_program,fill = program)) +
+ggplot(programs_courses_df[programs_courses_df$n_courses_program > 2,],aes(x=program,y=n_courses_program,fill = program)) +
   geom_col() +
   theme(legend.position = "none",
     axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)
@@ -172,8 +172,6 @@ ggplot(programs_df[(programs_df$n_students_course>100 & programs_df$n_courses_pr
   geom_col() + guides(col = guide_legend(nrow = 50))+ 
   theme(
     axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
-    # Change legend background color
-    legend.background = element_rect(fill = "darkgray"),
     legend.key = element_rect(fill = "lightblue", color = NA),
     # Change legend key size and key width
     legend.key.size = unit(0.4, "cm"),
@@ -185,8 +183,6 @@ ggplot(programs_df[(programs_df$n_students_course>100 & programs_df$n_courses_pr
   geom_col() + guides(col = guide_legend(nrow = 50))+ 
   theme(
     axis.text.x = element_text(angle = 30, vjust = 1, hjust=1),
-    # Change legend background color
-    legend.background = element_rect(fill = "darkgray"),
     legend.key = element_rect(fill = "lightblue", color = NA),
     # Change legend key size and key width
     legend.key.size = unit(0.4, "cm"),
@@ -215,3 +211,8 @@ ggplot(selected_program_formatives,aes(x=as.factor(course_name),y=number_of_test
     legend.key.width = unit(0.2,"cm")  
   )
 
+#----number of programs in each course----###
+course_programs <- sap %>%
+  select(program,course_name) %>%
+  group_by(program,course_name) %>%
+  dplyr::summarise(n=n())
