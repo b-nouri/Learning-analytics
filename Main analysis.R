@@ -109,7 +109,8 @@ ggplot(df_test,aes(x=final_score)) +
 
 ###---------Courses with formative tests---------####
 formative_content <- content_df %>%
-  filter(content_type == "resource/x-bb-asmt-test-link" | content_type == "resource/x-bb-assignment" |
+  filter(content_type == "resource/x-bb-asmt-test-link" |
+           content_type == "resource/x-bb-assignment" |
            content_type == "resource/x-turnitin-assignment" | content_type == "resource/x-osv-kaltura/mashup" |
            content_type == "resource/x-plugin-scormengine") %>%
   mutate(test_score_type = ifelse((is.na(possible_score) | possible_score == 0 )& content_type != "resource/x-turnitin-assignment","ungraded",
@@ -204,7 +205,6 @@ ggplot(selected_program_formatives,aes(x=as.factor(course_name),y=number_of_test
   theme(
     axis.text.x = element_text(angle = 75, vjust = 1, hjust=1),
     # Change legend background color
-    legend.background = element_rect(fill = "darkgray"),
     legend.key = element_rect(fill = "lightblue", color = NA),
     # Change legend key size and key width
     legend.key.size = unit(0.4, "cm"),
@@ -216,3 +216,13 @@ course_programs <- sap %>%
   select(program,course_name) %>%
   group_by(program,course_name) %>%
   dplyr::summarise(n=n())
+
+##---number of exam attempts----###
+attempt_student <- attempts %>%
+  group_by(content_id,user_pk) %>%
+  dplyr::summarize(number_tries = n(), 
+                   lowset = min(as.numeric(score)),highest = max(as.numeric(score)),
+                   .groups = 'keep')
+names(attempt_student)[1] <- "content_pk"
+nn <- merge(attempt_student,content_df) %>%
+  select()
