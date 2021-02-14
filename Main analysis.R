@@ -23,7 +23,7 @@ SAP_ <- read.csv("c:/ALCAPAS/Anon_SAP_data.dsv",
                       sep="\t", quote = "",na.strings = c("", "NA"),header = F)
 
 colnames(SAP_) <- c("course_id", "opo_id", "course_name","user_pk",
-                         "type of program","program","current_phase","score_january","score_june","final_score(kf)")
+                         "type of program","program","current_phase","score_january","score_june","final_score")
 
 sap <- SAP_[2:nrow(SAP_),]
 colnames(sap)[1] <- "course_pk"
@@ -68,6 +68,7 @@ levels(as.factor(sap$campus))
 sap <- sap %>%
   mutate(program_name = gsub("\\(([^)]*)\\)+$","",sap$program))
 levels(as.factor(sap$program_name))
+
 ###------Cleaning data----#########
 events <- events %>% mutate(time = dmy_hms(timestamp)) %>%
   mutate(year = year(time)) %>%
@@ -79,9 +80,9 @@ events <- events %>% mutate(time = dmy_hms(timestamp)) %>%
 
 contents <- contents %>%
   arrange(content_pk,id.opo)
-#content_df <- contents[!is.na(contents$y),]
-content_df <- distinct(contents, content_pk, .keep_all = TRUE)
 
+
+content_df <- distinct(contents, content_pk, .keep_all = TRUE)
 
 event_df <- join(events,content_df,
                  type = "inner", by = "content_pk")
@@ -93,7 +94,7 @@ colnames(event_df)[30] <- "final_score"
 
 
 event_df <- event_df %>%
-  mutate(score_class = cut(event_df$final_score, breaks=c(0,6,9,13,21), labels=c( 'Poor', 'AbleToPush', 'Successful', 'Excellent')))
+  mutate(score_class = cut(as.numeric(event_df$final_score), breaks=c(0,6,9,13,21), labels=c( 'Poor', 'AbleToPush', 'Successful', 'Excellent')))
 
 
 df_test <- event_df[event_df$course_pk == 888130 &
@@ -104,48 +105,52 @@ df_test <- event_df[event_df$course_pk == 888130 &
 ggplot(df_test,aes(x=academic_week,color = score_class,fill=score_class)) +
   geom_histogram(bins=22,alpha=0.5)
 
-ggplot(df_test,aes(x=final_score)) +
-  geom_boxplot()
-
+rm(df_test)
 ###---------Courses with formative tests---------####
+content_df %>%
+  filter(content_type == "resource/x-bb-asmt-test-link" |
+           content_type == "resource/x-bb-assignment" |
+           content_type == "resource/x-turnitin-assignment" | content_type == "resource/x-osv-kaltura/mashup" |
+           content_type == "resource/x-plugin-scormengine") %>%
+  filter(course_pk %in% sap$course_pk) %>%
+  ggplot(aes(x=opleidingsonderdeel ,fill=content_type)) +
+  geom_bar()+ 
+  theme(
+    axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)
+  )
+
 formative_content <- content_df %>%
   filter(content_type == "resource/x-bb-asmt-test-link" |
            content_type == "resource/x-bb-assignment" |
            content_type == "resource/x-turnitin-assignment" | content_type == "resource/x-osv-kaltura/mashup" |
            content_type == "resource/x-plugin-scormengine") %>%
   mutate(test_score_type = ifelse((is.na(possible_score) | possible_score == 0 )& content_type != "resource/x-turnitin-assignment","ungraded",
-                           ifelse(is.na(possible_score) & content_type == "resource/x-turnitin-assignment","unknown","graded")))
+                           ifelse(is.na(possible_score) & content_type == "resource/x-turnitin-assignment","unknown",
+                           ifelse(content_type == "resource/x-bb-asmt-test-link","graded test","graded other format"))))
 
 
 course_formative <- formative_content %>%
   mutate(test_score_type = as.factor(test_score_type)) %>%
-  select(course_pk,test_score_type,course_id) %>%
-  group_by(course_pk,test_score_type,course_id) %>%
-  dplyr::summarise(number_of_tests=n()) 
+  select(course_pk,test_score_type,course_id,opleidingsonderdeel) %>%
+  group_by(course_pk,test_score_type,course_id,opleidingsonderdeel) %>%
+  dplyr::summarise(number_of_tests=n()) %>%
+  filter(course_pk %in% sap$course_pk)
 
 g <- course_formative %>%
-  filter(test_score_type == "graded")
+  filter(test_score_type == "graded test" | test_score_type == "graded other format")
 
 graded_formative <- course_formative %>%
   filter(course_pk %in% g$course_pk) %>%
   arrange(number_of_tests)
 
-gf <- graded_formative %>%
-  group_by(course_pk) %>%
-  dplyr::summarise(number_of_tests=sum(number_of_tests)) %>%
-  filter(number_of_tests>25)
 
-graded_formative1 <- graded_formative %>%
-  filter(course_pk %in% gf$course_pk)
-
-ggplot(graded_formative,aes(x=as.factor(course_pk),y=number_of_tests,color=test_score_type,fill=test_score_type)) +
-  geom_col()
+ggplot(course_formative,aes(x=as.factor(opleidingsonderdeel),y=number_of_tests,color=test_score_type,fill=test_score_type)) +
+  geom_col()+ 
+  theme(
+    axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)
+  )
 
 rm(g)
-rm(gf)
-
-levels(as.factor(sap$program))
-
 #--------Aggregating Programs-------###
 Course_students_df <- sap %>%
   group_by(program,course_pk,opo_id,course_name) %>%
@@ -192,15 +197,16 @@ ggplot(programs_df[(programs_df$n_students_course>100 & programs_df$n_courses_pr
 
 
 #----Aggregating events with programs----#
-programs_formatives <- merge(graded_formative,programs_df)
+programs_formatives <- merge(course_formative,programs_df)
 
-g <- programs_df[(programs_df$n_students_course>100 & programs_df$n_courses_program > 2),] %>%
+g <- programs_df[(programs_df$n_students_course>100),] %>%
+  filter(n_courses_program >2) %>%
   select(program) %>%
   distinct(program)
 
-selected_program_formatives <- programs_formatives[programs_formatives$program %in% g$program,]
+selected_program_data <- programs_formatives[(programs_formatives$program %in% g$program & programs_formatives$n_students_course>80),]
 
-ggplot(selected_program_formatives,aes(x=as.factor(course_name),y=number_of_tests,color=test_score_type,fill=test_score_type)) +
+ggplot(selected_program_data,aes(x=as.factor(course_name),y=number_of_tests,fill=test_score_type)) +
   geom_col() + facet_wrap(~program, scales = "free", ncol = 3,nrow=2) +
   theme(
     axis.text.x = element_text(angle = 75, vjust = 1, hjust=1),
@@ -209,20 +215,76 @@ ggplot(selected_program_formatives,aes(x=as.factor(course_name),y=number_of_test
     # Change legend key size and key width
     legend.key.size = unit(0.4, "cm"),
     legend.key.width = unit(0.2,"cm")  
-  )
-
-#----number of programs in each course----###
-course_programs <- sap %>%
-  select(program,course_name) %>%
-  group_by(program,course_name) %>%
-  dplyr::summarise(n=n())
+  ) + scale_fill_manual(values = c("#E7B800","#FC4E07","#00AFBB" ,"#C3D7A4"))
+  
 
 ##---number of exam attempts----###
-attempt_student <- attempts %>%
+nn <- attempts %>%
   group_by(content_id,user_pk) %>%
+  filter(user_pk %in% sap$user_pk) %>%
   dplyr::summarize(number_tries = n(), 
                    lowset = min(as.numeric(score)),highest = max(as.numeric(score)),
                    .groups = 'keep')
-names(attempt_student)[1] <- "content_pk"
-nn <- merge(attempt_student,content_df) %>%
-  select()
+names(nn)[1] <- "content_pk"
+attempt_student <- merge(nn,content_df[,c("content_pk","course_pk","title",
+        "possible_score","content_type")],by="content_pk")
+rm(nn)
+
+###-------events------###
+event_course_week <- event_df %>%
+  group_by(user_pk,course_pk,academic_week) %>%
+  dplyr::summarise(n_event_week = n())
+
+event_week_day <- event_df %>%
+  group_by(user_pk,course_pk, academic_week) %>%
+  dplyr::summarise(n_day_week = n_distinct(day))
+
+event_course <- event_df %>%
+  group_by(user_pk,course_pk) %>%
+  dplyr::summarise(n_event_course = n())
+
+
+#-----Preparing data for selected courses----###
+#Selected program: ABA toegepaste economische wetenschappen (Leuv) 
+#selected courses: accountancy (TEW) - 888130, 
+#Bank- en financie - 888132, de globale economie - 888954
+sap1 <- sap[sap$course_pk == 888132 &
+              sap$final_score > 0&
+              sap$program == "ABA toegepaste economische wetenschappen (Leuv)",]
+
+attempt_student1 <- attempt_student[attempt_student$course_pk == 888132 &
+                    attempt_student$user_pk %in% sap1$user_pk,]
+
+event_course_week1 <- event_course_week[event_course_week$course_pk == 888132,]
+
+event_week_day1 <- event_week_day[event_week_day$course_pk == 888132,]
+
+event_course1 <- event_course[event_course$course_pk == 888132 &
+                                event_course$user_pk %in% sap1$user_pk,]
+
+formative_content1 <- formative_content[formative_content$course_pk == 888132,]
+
+course1 <- sap1 %>%
+  select(course_name,user_pk,final_score)
+
+course1 <- merge(course1,event_course1[,c("user_pk","n_event_course")],by="user_pk")
+
+ggplot(course1,aes(x=n_event_course,y=final_score)) +
+  geom_point() +
+  geom_smooth(method='lm', formula= y~x)
+
+c <- attempt_student1 %>%
+  distinct(content_pk)
+b <- attempt_student1 %>%
+  group_by(user_pk) %>%
+  spread(content_pk,highest) %>%
+  group_by(user_pk) %>%
+  summarise_at(vars(c$content_pk), sum, na.rm = TRUE) %>%
+  ungroup()
+
+
+
+df <- data.frame(month=rep(1:3,2),
+                 student=rep(c("Amy", "Bob"), each=3),
+                 A=c(9, 7, 6, 8, 6, 9),
+                 B=c(6, 7, 8, 5, 6, 7))
