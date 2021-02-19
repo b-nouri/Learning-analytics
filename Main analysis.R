@@ -127,9 +127,9 @@ formative_content <- content_df %>%
            content_type == "resource/x-bb-assignment" |
            content_type == "resource/x-turnitin-assignment" | content_type == "resource/x-osv-kaltura/mashup" |
            content_type == "resource/x-plugin-scormengine") %>%
-  mutate(test_score_type = ifelse((is.na(possible_score) | possible_score == 0 )& content_type != "resource/x-turnitin-assignment","ungraded",
-                           ifelse(is.na(possible_score) & content_type == "resource/x-turnitin-assignment","unknown",
-                           ifelse(content_type == "resource/x-bb-asmt-test-link","graded test","graded other format"))))
+  mutate(test_score_type = ifelse((is.na(possible_score) | possible_score == 0 )& content_type != "resource/x-turnitin-assignment","Video Content",
+                           ifelse(is.na(possible_score) & content_type == "resource/x-turnitin-assignment","turnitin assignment (grade unknown)",
+                           ifelse(content_type == "resource/x-bb-asmt-test-link","graded test","graded other format (grade unknown)"))))
 
 
 course_formative <- formative_content %>%
@@ -157,6 +157,7 @@ rm(g)
 #--------Aggregating Programs-------###
 Course_students_df <- sap %>%
   group_by(program,course_pk,opo_id,course_name) %>%
+  filter(final_score > 0) %>%
   dplyr::summarize(n_students_course=n())
 
 programs_courses_df <- sap %>%
@@ -218,8 +219,42 @@ ggplot(selected_program_data,aes(x=as.factor(course_name),y=number_of_tests,fill
     # Change legend key size and key width
     legend.key.size = unit(0.4, "cm"),
     legend.key.width = unit(0.2,"cm")  
-  ) + scale_fill_manual(values = c("#E7B800","#FC4E07","#00AFBB" ,"#C3D7A4"))
-  
+  ) + scale_fill_manual(values = c("#E7B800","#FC4E07","#C3D7A4","#00AFBB")) +
+  labs(x = "Course having more than 80 registered students", y = "Number of content")
+
+selected_program_data <- programs_formatives[(programs_formatives$program %in% 
+                                                c("BA handelsingenieur (Leuv)","ABA toegepaste economische wetenschappen (Leuv)") & programs_formatives$n_students_course>100),]
+
+ggplot(selected_program_data,aes(x=as.factor(course_name),y=number_of_tests,fill=test_score_type)) +
+  geom_col() + facet_wrap(~program,scales = "free_x", ncol = 3,nrow=2) +
+  theme(
+    axis.text.x = element_text(angle = 75, vjust = 1, hjust=1),
+    legend.key = element_rect(fill = "lightblue", color = NA),
+    legend.key.size = unit(0.4, "cm"),
+    legend.key.width = unit(0.2,"cm")  
+  ) + scale_fill_manual(values = c("#E7B800","#FC4E07","#C3D7A4","#00AFBB")) +
+  labs(title = "Formative & video content in different courses",
+       subtitle = "(HIR And TEW Programs only)",
+       x = "Course having more than 100 registered students", y = "Number of content",
+       fill = "Type of content")
+
+selected_program_data <- programs_formatives[(programs_formatives$program %in% 
+                                                c("BA handelsingenieur (Leuv)",
+                                                  "ABA toegepaste economische wetenschappen (Leuv)")),] %>%
+  distinct(course_name,.keep_all = T)
+
+ggplot(selected_program_data,aes(x=as.factor(course_name),y=n_students_course)) +
+  geom_col() + facet_wrap(~program,scales = "free_x", ncol = 3,nrow=2) +
+  theme(
+    axis.text.x = element_text(angle = 75, vjust = 1, hjust=1),
+    legend.key = element_rect(fill = "lightblue", color = NA),
+    legend.key.size = unit(0.4, "cm"),
+    legend.key.width = unit(0.2,"cm")  
+  ) + scale_fill_manual(values = c("#E7B800","#FC4E07","#C3D7A4","#00AFBB")) +
+  labs(title = "Number of students registered in each course",
+       subtitle = "(HIR And TEW Programs only)",
+       x = "Course name", y = "Number of students")
+
 
 ##---number of exam attempts----###
 nn <- attempts %>%
@@ -232,6 +267,9 @@ names(nn)[1] <- "content_pk"
 attempt_student <- merge(nn,content_df[,c("content_pk","course_pk","title",
         "possible_score","content_type")],by="content_pk")
 rm(nn)
+
+attempt_student_selected <- attempts[(attempts$content_id %in% content_df[(content_df$course_pk==888132),"content_pk"]),]
+
 
 ###-------events------###
 event_course_week <- event_df %>%
@@ -246,13 +284,13 @@ event_course <- event_df %>%
   group_by(user_pk,course_pk) %>%
   dplyr::summarise(n_event_course = n())
 
-
+video_events
 #-----Preparing data for selected courses----###
 #Selected program: ABA toegepaste economische wetenschappen (Leuv) 
 #selected courses: accountancy (TEW) - 888130, 
 #Bank- en financie - 888132, de globale economie - 888954
 sap1 <- sap[sap$course_pk == 888132 &
-              sap$final_score > 0&
+              sap$final_score > 0 &
               sap$program == "ABA toegepaste economische wetenschappen (Leuv)",]
 
 attempt_student1 <- attempt_student[attempt_student$course_pk == 888132 &
@@ -334,6 +372,9 @@ course1 <- subset(course1, select=-c(course_name))
 ###--------Analysis - Forecasting------####
 ###---Train Test Split----###
 course1 <- tibble::rowid_to_column(course1, "row")
+course1$final_score <- as.integer(course1$final_score)
+course1 <- subset(course1, select=-c(score_class))
+
 #course1 <- subset(course1, select=-c(n_event_course))
 set.seed(123)
 
@@ -345,7 +386,7 @@ train_course1 <- train1[,3:ncol(train1)]
 
 id_test1 <- test1[,1:2]
 test_course1 <- test1[,4:ncol(test1)]
-
+str(train_course1)
 ##------Training and predicting----####
 
 train.control <- trainControl(method="LOOCV")
@@ -362,8 +403,7 @@ model2_svm <- train(final_score ~ . , data = train_course1,
                    method = "svmLinear", trControl = train.control,metric = "MAE")
 
 model3_glm <- train(final_score ~ . , data = train_course1,
-                         method = "glmStepAIC", trControl = train.control,metric = "MAE",
-                         preProcess = c("zv", "center", "scale", "pca"))
+                         method = "glmStepAIC", trControl = train.control,metric = "MAE")
 
 
 model4_elasticnet <- train(final_score ~ . , data = train_course1,
@@ -392,8 +432,8 @@ pred4 <- data.frame(predict(model4_elasticnet, test_course1, type = "raw"))
 pred5 <- data.frame(predict(model5_xgbTree, test_course1, type = "raw"))
 pred6 <- data.frame(predict(model6_gbm, test_course1, type = "raw"))
 
-# results <- cbind(id_test,test1$final_score)
-# names(results)[3] <- "actual_final_score"
+results <- cbind(id_test1,test1$final_score)
+names(results)[3] <- "actual_final_score"
 # 
 # results <- cbind(results,pred5)
 # names(results)[4] <- "prediction_xgbTree"
@@ -435,6 +475,15 @@ conf_matglm
 conf_matglmnet
 conf_matxbtree
 conf_matgbm
+
+
+
+
+gbmImp <- varImp(model6_gbm, conditional=TRUE)
+gbmImp <- varImp(model6_gbm, scale = FALSE)
+vImpGbm=varImp(model6_gbm)
+gbmImp
+plot(gbmImp, top = 32)
 
 #rm(accuracy1)
 #accuracy1 <- as.data.frame(cbind("rf",mae_test_rf,conf_matrm$`Balanced Accuracy`,conf_matrm$F1))
@@ -637,3 +686,6 @@ accuracy <- data.frame(c("rf2",conf_matrm$`Balanced Accuracy`,conf_matrm$F1),
 accuracy <- data.frame(t(accuracy))
 names(accuracy) <- c("algorithm","accuracy","F1")
 
+gbmImp <- varImp(model5_xgbTree, conditional=TRUE)
+gbmImp
+plot(gbmImp, top = 32)
