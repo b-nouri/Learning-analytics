@@ -241,6 +241,7 @@ ggplot(selected_program_data,aes(x=as.factor(course_name),y=number_of_tests,fill
 selected_program_data <- programs_formatives[(programs_formatives$program %in% 
                                                 c("BA handelsingenieur (Leuv)",
                                                   "ABA toegepaste economische wetenschappen (Leuv)")),] %>%
+  group_by(program,course_name) %>%
   distinct(course_name,.keep_all = T)
 
 ggplot(selected_program_data,aes(x=as.factor(course_name),y=n_students_course)) +
