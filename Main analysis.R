@@ -165,18 +165,38 @@ programs_courses_df <- sap %>%
   group_by(program) %>%
   dplyr::summarize(n_courses_program=n())
 
-
-
-ggplot(programs_courses_df[programs_courses_df$n_courses_program > 2,],aes(x=program,y=n_courses_program,fill = program)) +
+ggplot(programs_courses_df[programs_courses_df$n_courses_program > 2,],aes(x=program,y=n_courses_program)) +
   geom_col() +
   theme(legend.position = "none",
-    axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)
-  )
+    axis.text.x = element_text(angle = 70, vjust = 1, hjust=1)
+  ) +
+  labs(title = "Number of courses in each program",
+       subtitle = "(Only the programs having more than 2 courses)",
+       x = "Program", y = "number of courses")
+
 
 programs_df <- merge(Course_students_df, programs_courses_df)
 rm(Course_students_df)
 
 
+g <- programs_df[programs_df$n_students_course>100 & 
+                   programs_df$n_courses_program > 2,]
+g1 <- g %>%
+  group_by(program) %>%
+  dplyr::summarise(n_courses = n())
+
+#programs having more than 2 courses and each course having more than 100 students
+ggplot(g1[g1$program != "ABA handelswetenschappen (Antw)",],aes(x=program,y=n_courses)) +
+  geom_col() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 60, vjust = 1, hjust=1)
+  ) +
+  labs(title = "Number of courses in the programs having more than 2 courses",
+       subtitle = "(Only courses having more than 100 students selected)",
+       x = "Program", y = "number of courses")
+
+
+selected_programs <- g1[g1$program != "ABA handelswetenschappen (Antw)",]
 #courses having more than 100 students - grouped by programs
 ggplot(programs_df[(programs_df$n_students_course>100 & programs_df$n_courses_program > 2),],aes(x=program,y=n_students_course)) +
   geom_col() + guides(col = guide_legend(nrow = 50))+ 
@@ -203,24 +223,39 @@ ggplot(programs_df[(programs_df$n_students_course>100 & programs_df$n_courses_pr
 #----Aggregating events with programs----#
 programs_formatives <- merge(course_formative,programs_df)
 
-g <- programs_df[(programs_df$n_students_course>100),] %>%
-  filter(n_courses_program >2) %>%
-  select(program) %>%
-  distinct(program)
+selected_program_data <- programs_formatives[(programs_formatives$program %in% selected_programs$program),]
 
-selected_program_data <- programs_formatives[(programs_formatives$program %in% g$program & programs_formatives$n_students_course>80),]
-
-ggplot(selected_program_data,aes(x=as.factor(course_name),y=number_of_tests,fill=test_score_type)) +
-  geom_col() + facet_wrap(~program, scales = "free", ncol = 3,nrow=2) +
+selectedp1 <- selected_programs[1:3,1]
+ggplot(selected_program_data[(selected_program_data$program %in% selectedp1$program),],
+       aes(x=as.factor(course_name),y=number_of_tests,fill=test_score_type)) +
+  geom_col() + facet_wrap(~program, scales = "free_x", ncol = 3,nrow=2) +
   theme(
     axis.text.x = element_text(angle = 75, vjust = 1, hjust=1),
-    # Change legend background color
     legend.key = element_rect(fill = "lightblue", color = NA),
-    # Change legend key size and key width
     legend.key.size = unit(0.4, "cm"),
     legend.key.width = unit(0.2,"cm")  
   ) + scale_fill_manual(values = c("#E7B800","#FC4E07","#C3D7A4","#00AFBB")) +
-  labs(x = "Course having more than 80 registered students", y = "Number of content")
+  labs(title = "Formative & video content in different courses",
+       subtitle = "(program 1-3)",
+       x = "Course having more than 100 registered students", y = "Number of content",
+       fill = "Type of content")
+
+selectedp2 <- selected_programs[4:5,1]
+ggplot(selected_program_data[(selected_program_data$program %in% selectedp2$program),],
+       aes(x=as.factor(course_name),y=number_of_tests,fill=test_score_type)) +
+  geom_col() + facet_wrap(~program, scales = "free_x", ncol = 3,nrow=2) +
+  theme(
+    axis.text.x = element_text(angle = 75, vjust = 1, hjust=1),
+    legend.key = element_rect(fill = "lightblue", color = NA),
+    legend.key.size = unit(0.4, "cm"),
+    legend.key.width = unit(0.2,"cm")  
+  ) + scale_fill_manual(values = c("#E7B800","#FC4E07","#C3D7A4","#00AFBB")) +
+  labs(title = "Formative & video content in different courses",
+       subtitle = "(program 4-5  - HIR And TEW)",
+       x = "Course having more than 100 registered students", y = "Number of content",
+       fill = "Type of content")
+
+
 
 selected_program_data <- programs_formatives[(programs_formatives$program %in% 
                                                 c("BA handelsingenieur (Leuv)","ABA toegepaste economische wetenschappen (Leuv)") & programs_formatives$n_students_course>100),]
