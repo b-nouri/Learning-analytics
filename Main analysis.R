@@ -15,21 +15,33 @@ events <- read.csv("c:/ALCAPAS/Anon_events.dsv",
                       sep="\t", quote = "",na.strings = c("", "NA"))
 colnames(events) <- c("content_pk", "user_pk", "timestamp")
 
-attempts_ <- read.csv("c:/ALCAPAS/Anon_attempts.dsv",
+attempts_ <- read.csv("c:/ALCAPAS/TEW/attempts_Tier4.dsv",
                      sep="\t", quote = "",na.strings = c("", "NA"),header = F)
 
 colnames(attempts_) <- c("user_pk", "content_id", "start_date","submit_date",
                         "score","grade","first_attempt","last_attempt","highest_attempt","lowest_attempt")
-attempts <- attempts_[2:nrow(attempts_),]
+attempts <- attempts_[2:nrow(attempts_),1:10]
 
-SAP_ <- read.csv("c:/ALCAPAS/Anon_SAP_data.dsv",
+SAP_ <- read.csv("c:/ALCAPAS/TEW/SAP_Tier4.dsv",
                       sep="\t", quote = "",na.strings = c("", "NA"),header = F)
 
-colnames(SAP_) <- c("course_id", "opo_id", "course_name","user_pk",
-                         "type of program","program","current_phase","score_january","score_june","final_score")
+colnames(SAP_) <- SAP_[1,]
+colnames(SAP_) <- tolower(colnames(SAP_))
+colnames(SAP_) <- c("opo_id", "course_name","user_pk",
+                         "type of program","program","ucm_sap","activity_code",
+                    "current_phase","score_january","score_june",
+                    "final_score","course_pk")
+
+# colnames(SAP_) <- c("course_pk","opo_id", "course_name","user_pk",
+#                     "type of program","program",
+#                     "current_phase","score_january","score_june",
+#                     "final_score")
+
+SAP_$course_pk <- as.integer(SAP_$course_pk)
+SAP_$final_score <- as.integer(SAP_$final_score)
 
 sap <- SAP_[2:nrow(SAP_),]
-colnames(sap)[1] <- "course_pk"
+
 
 
 sessions_ <- read.csv("c:/ALCAPAS/Anon_sessions.dsv",
@@ -320,14 +332,15 @@ event_course <- event_df %>%
   group_by(user_pk,course_pk) %>%
   dplyr::summarise(n_event_course = n())
 
-video_events
 #-----Preparing data for selected courses----###
 #Selected program: ABA toegepaste economische wetenschappen (Leuv) 
 #selected courses: accountancy (TEW) - 888130, 
 #Bank- en financie - 888132, de globale economie - 888954
+sap$final_score <- as.integer(sap$final_score)
 sap1 <- sap[sap$course_pk == 888132 &
               sap$final_score > 0 &
               sap$program == "ABA toegepaste economische wetenschappen (Leuv)",]
+
 
 attempt_student1 <- attempt_student[attempt_student$course_pk == 888132 &
                     attempt_student$user_pk %in% sap1$user_pk,]
@@ -360,10 +373,20 @@ b <- attempt_student1 %>%
   group_by(user_pk) %>%
   summarise_at(vars(c$content_pk), sum, na.rm = TRUE)
 
-b <- b %>% rename_at(vars(c$content_pk), ~ paste0('test', 1:19))
 
+b <- b %>% rename_at(vars(c$content_pk), ~ paste0('test', 1:19))
 course1 <- merge(course1,b,by="user_pk",all.x = TRUE)
+
+sum(is.na(course1))
+vis_miss(course1)
 course1 <- replace(course1, is.na(course1), 0)
+vis_miss(course1)
+
+course1 <- course1 %>%
+  mutate(n_tests_taken =  rowSums(. != 0)-4) %>%
+  mutate(sum_tests_taken =  select(.,test1:test19) %>% rowSums(.))
+           
+
 rm(b)
 rm(c)
 rm(df1)
@@ -402,6 +425,32 @@ course1 <- merge(course1,b,by="user_pk",all.x = TRUE)
 course1 <- replace(course1, is.na(course1), 0)
 rm(b)
 rm(c)
+
+content1 <- content_df[content_df$course_pk == 888132,]
+
+video1 <- content1[content1$content_type %in% c('resource/x-osv-kaltura/mashup',
+                                                'resource/x-bb-toollink'),]
+
+video_event1 <- event_df[event_df$user_pk %in% sap1$user_pk &
+                           event_df$content_pk %in% video1$content_pk,]
+
+c <- unique(video_event1[,"content_pk"])
+
+b <- video_event1 %>%
+  group_by(user_pk,content_pk) %>%
+  dplyr::summarise(n= n()) %>%
+  spread(content_pk,n) %>%
+  group_by(user_pk) %>%
+  summarise_at(vars(as.factor(c)), sum, na.rm = TRUE)
+
+b <- b %>% rename_at(vars(as.factor(c)), ~ paste0('n_watched_video', 1:length(c)))
+
+course1 <- merge(course1,b,by="user_pk",all.x = TRUE)
+course1 <- replace(course1, is.na(course1), 0)
+rm(b)
+rm(c)
+
+
 
 course1 <- subset(course1, select=-c(course_name))
 
