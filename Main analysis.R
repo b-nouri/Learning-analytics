@@ -367,6 +367,9 @@ ggplot(course1,aes(x=n_event_course,y=final_score)) +
 
 c <- attempt_student1 %>%
   distinct(content_pk)
+
+#write.csv(c,"C:/ALCAPAS/content_ids.csv")
+
 b <- attempt_student1 %>%
   group_by(user_pk) %>%
   spread(content_pk,highest) %>%
@@ -379,17 +382,67 @@ course1 <- merge(course1,b,by="user_pk",all.x = TRUE)
 
 sum(is.na(course1))
 vis_miss(course1)
-course1 <- replace(course1, is.na(course1), 0)
+course1 <- course1 %>%
+  mutate(n_tests_taken =  rowSums(. != 0)-4) 
+
+course1 <- course1 %>%
+  mutate(n_tests_taken = ifelse(is.na(course1$n_tests_taken),0,course1$n_tests_taken))
+
+course1$test1 <- replace(course1$test1, is.na(course1$test1), median(course1$test1,na.rm = T))
+course1$test2 <- replace(course1$test2, is.na(course1$test2), median(course1$test2,na.rm = T))
+course1$test3 <- replace(course1$test3, is.na(course1$test3), median(course1$test3,na.rm = T))
+course1$test4 <- replace(course1$test4, is.na(course1$test4), median(course1$test4,na.rm = T))
+course1$test5 <- replace(course1$test5, is.na(course1$test5), median(course1$test5,na.rm = T))
+course1$test6 <- replace(course1$test6, is.na(course1$test6), median(course1$test6,na.rm = T))
+course1$test7 <- replace(course1$test7, is.na(course1$test7), median(course1$test7,na.rm = T))
+course1$test8 <- replace(course1$test8, is.na(course1$test8), median(course1$test8,na.rm = T))
+course1$test9 <- replace(course1$test9, is.na(course1$test9), median(course1$test9,na.rm = T))
+course1$test10 <- replace(course1$test10, is.na(course1$test10), median(course1$test10,na.rm = T))
+course1$test11 <- replace(course1$test11, is.na(course1$test11), median(course1$test11,na.rm = T))
+course1$test12 <- replace(course1$test12, is.na(course1$test12), median(course1$test12,na.rm = T))
+course1$test13 <- replace(course1$test13, is.na(course1$test13), median(course1$test13,na.rm = T))
+course1$test14 <- replace(course1$test14, is.na(course1$test14), median(course1$test14,na.rm = T))
+course1$test15 <- replace(course1$test15, is.na(course1$test15), median(course1$test15,na.rm = T))
+course1$test16 <- replace(course1$test16, is.na(course1$test16), median(course1$test16,na.rm = T))
+course1$test17 <- replace(course1$test17, is.na(course1$test17), median(course1$test17,na.rm = T))
+course1$test18 <- replace(course1$test18, is.na(course1$test18), median(course1$test18,na.rm = T))
+course1$test19 <- replace(course1$test19, is.na(course1$test19), median(course1$test19,na.rm = T))
+
 vis_miss(course1)
 
 course1 <- course1 %>%
-  mutate(n_tests_taken =  rowSums(. != 0)-4) %>%
   mutate(sum_tests_taken =  select(.,test1:test19) %>% rowSums(.))
            
+course1 <- course1 %>%
+  mutate(n_tests_taken = ifelse(is.na(course1$n_tests_taken),0,course1$n_tests_taken))
+
 
 rm(b)
 rm(c)
-rm(df1)
+
+
+
+c <- attempt_student1 %>%
+  distinct(content_pk)
+
+b <- attempt_student1 %>%
+  group_by(user_pk) %>%
+  spread(content_pk,number_tries) %>%
+  group_by(user_pk) %>%
+  summarise_at(vars(c$content_pk), sum, na.rm = TRUE)
+
+
+b <- b %>% rename_at(vars(c$content_pk), ~ paste0('n_tries_test', 1:19))
+course1 <- merge(course1,b,by="user_pk",all.x = TRUE)
+
+course1 <- course1 %>%
+  mutate_all(~replace(., is.na(.), 0)) %>%
+  mutate(total_test_attempts = select(.,n_tries_test1:n_tries_test19) %>% rowSums(.))
+
+rm(b)
+rm(c)
+
+
 
 c <- unique(event_course_week1[,"academic_week"])
 c <- c %>%
@@ -443,7 +496,7 @@ b <- video_event1 %>%
   group_by(user_pk) %>%
   summarise_at(vars(as.factor(c)), sum, na.rm = TRUE)
 
-b <- b %>% rename_at(vars(as.factor(c)), ~ paste0('n_watched_video', 1:length(c)))
+b <- b %>% rename_at(vars(as.factor(c)), ~ paste0('n_times_opened_video', 1:length(c)))
 
 course1 <- merge(course1,b,by="user_pk",all.x = TRUE)
 course1 <- replace(course1, is.na(course1), 0)
