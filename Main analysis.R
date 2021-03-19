@@ -314,6 +314,9 @@ nn <- attempts %>%
 names(nn)[1] <- "content_pk"
 attempt_student <- merge(nn,content_df[,c("content_pk","course_pk","title",
         "possible_score","content_type")],by="content_pk")
+
+attempt_student <- attempt_student %>%
+  mutate(test_percentage = (highest/possible_score*100))
 rm(nn)
 
 attempt_student_selected <- attempts[(attempts$content_id %in% content_df[(content_df$course_pk==888132),"content_pk"]),]
@@ -359,7 +362,7 @@ formative_content1 <- formative_content[formative_content$course_pk == 888132,]
 course1 <- sap1 %>%
   select(course_name,user_pk,final_score)
 
-course1 <- merge(course1,event_course1[,c("user_pk","n_event_course")],by="user_pk")
+#course1 <- merge(course1,event_course1[,c("user_pk","n_event_course")],by="user_pk")
 
 ggplot(course1,aes(x=n_event_course,y=final_score)) +
   geom_point() +
@@ -421,6 +424,51 @@ rm(b)
 rm(c)
 
 
+#-----test percentage----#######
+c <- attempt_student1 %>%
+  distinct(content_pk)
+
+b <- attempt_student1 %>%
+  group_by(user_pk) %>%
+  spread(content_pk,test_percentage) %>%
+  group_by(user_pk) %>%
+  summarise_at(vars(c$content_pk), sum, na.rm = TRUE)
+
+
+b <- b %>% rename_at(vars(c$content_pk), ~ paste0('test_percentage', 1:19))
+course1 <- merge(course1,b,by="user_pk",all.x = TRUE)
+
+sum(is.na(course1))
+vis_miss(course1)
+
+course1$test_percentage1 <- replace(course1$test_percentage1, is.na(course1$test_percentage1), median(course1$test_percentage1,na.rm = T))
+course1$test_percentage2 <- replace(course1$test_percentage2, is.na(course1$test_percentage2), median(course1$test_percentage2,na.rm = T))
+course1$test_percentage3 <- replace(course1$test_percentage3, is.na(course1$test_percentage3), median(course1$test_percentage3,na.rm = T))
+course1$test_percentage4 <- replace(course1$test_percentage4, is.na(course1$test_percentage4), median(course1$test_percentage4,na.rm = T))
+course1$test_percentage5 <- replace(course1$test_percentage5, is.na(course1$test_percentage5), median(course1$test_percentage5,na.rm = T))
+course1$test_percentage6 <- replace(course1$test_percentage6, is.na(course1$test_percentage6), median(course1$test_percentage6,na.rm = T))
+course1$test_percentage7 <- replace(course1$test_percentage7, is.na(course1$test_percentage7), median(course1$test_percentage7,na.rm = T))
+course1$test_percentage8 <- replace(course1$test_percentage8, is.na(course1$test_percentage8), median(course1$test_percentage8,na.rm = T))
+course1$test_percentage9 <- replace(course1$test_percentage9, is.na(course1$test_percentage9), median(course1$test_percentage9,na.rm = T))
+course1$test_percentage10 <- replace(course1$test_percentage10, is.na(course1$test_percentage10), median(course1$test_percentage10,na.rm = T))
+course1$test_percentage11 <- replace(course1$test_percentage11, is.na(course1$test_percentage11), median(course1$test_percentage11,na.rm = T))
+course1$test_percentage12 <- replace(course1$test_percentage12, is.na(course1$test_percentage12), median(course1$test_percentage12,na.rm = T))
+course1$test_percentage13 <- replace(course1$test_percentage13, is.na(course1$test_percentage13), median(course1$test_percentage13,na.rm = T))
+course1$test_percentage14 <- replace(course1$test_percentage14, is.na(course1$test_percentage14), median(course1$test_percentage14,na.rm = T))
+course1$test_percentage15 <- replace(course1$test_percentage15, is.na(course1$test_percentage15), median(course1$test_percentage15,na.rm = T))
+course1$test_percentage16 <- replace(course1$test_percentage16, is.na(course1$test_percentage16), median(course1$test_percentage16,na.rm = T))
+course1$test_percentage17 <- replace(course1$test_percentage17, is.na(course1$test_percentage17), median(course1$test_percentage17,na.rm = T))
+course1$test_percentage18 <- replace(course1$test_percentage18, is.na(course1$test_percentage18), median(course1$test_percentage18,na.rm = T))
+course1$test_percentage19 <- replace(course1$test_percentage19, is.na(course1$test_percentage19), median(course1$test_percentage19,na.rm = T))
+
+vis_miss(course1)
+
+course1 <- course1 %>%
+  mutate(average_tests_taken =  select(.,test_percentage1:test_percentage19) %>% rowMeans(.))
+
+
+#----------###
+
 
 c <- attempt_student1 %>%
   distinct(content_pk)
@@ -461,7 +509,33 @@ course1 <- replace(course1, is.na(course1), 0)
 rm(b)
 rm(c)
 
+course1 <- course1 %>%
+  mutate(total_test_attempts = select(.,n_tries_test1:n_tries_test19) %>% rowSums(.))
+ 
 
+course1 <- course1 %>%
+  mutate(sum_events_week2 = select(.,n_event_week1:n_event_week2)%>% rowSums(.)) %>%
+  mutate(sum_events_week3 = select(.,n_event_week1:n_event_week3)%>% rowSums(.)) %>%
+  mutate(sum_events_week4 = select(.,n_event_week1:n_event_week4)%>% rowSums(.)) %>%
+  mutate(sum_events_week5 = select(.,n_event_week1:n_event_week5)%>% rowSums(.)) %>%
+  mutate(sum_events_week6 = select(.,n_event_week1:n_event_week6)%>% rowSums(.)) %>%
+  mutate(sum_events_week7 = select(.,n_event_week1:n_event_week7)%>% rowSums(.)) %>%
+  mutate(sum_events_week8 = select(.,n_event_week1:n_event_week8)%>% rowSums(.)) %>%
+  mutate(sum_events_week9 = select(.,n_event_week1:n_event_week9)%>% rowSums(.)) %>%
+  mutate(sum_events_week10 = select(.,n_event_week1:n_event_week10)%>% rowSums(.)) %>%
+  mutate(sum_events_week11 = select(.,n_event_week1:n_event_week11)%>% rowSums(.)) %>%
+  mutate(sum_events_week12 = select(.,n_event_week1:n_event_week12)%>% rowSums(.)) %>%
+  mutate(sum_events_week13 = select(.,n_event_week1:n_event_week13)%>% rowSums(.)) %>%
+  mutate(sum_events_week14 = select(.,n_event_week1:n_event_week14)%>% rowSums(.)) %>%
+  mutate(sum_events_week15 = select(.,n_event_week1:n_event_week15)%>% rowSums(.)) %>%
+  mutate(sum_events_week16 = select(.,n_event_week1:n_event_week16)%>% rowSums(.)) %>%
+  mutate(sum_events_week17 = select(.,n_event_week1:n_event_week17)%>% rowSums(.)) %>%
+  mutate(sum_events_week18 = select(.,n_event_week1:n_event_week18)%>% rowSums(.))
+  
+ 
+
+b = paste0("n_event_week",1+1)
+  
 c <- unique(event_week_day1[,"academic_week"])
 c <- c %>%
   arrange(academic_week)
@@ -504,9 +578,7 @@ rm(b)
 rm(c)
 
 
-
 course1 <- subset(course1, select=-c(course_name))
-
 ###--------Analysis - Forecasting------####
 ###---Train Test Split----###
 course1 <- tibble::rowid_to_column(course1, "row")
