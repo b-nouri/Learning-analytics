@@ -423,16 +423,16 @@ video1 <- content1[content1$content_type %in% c('resource/x-osv-kaltura/mashup',
 video_event1 <- event_df[event_df$user_pk %in% sap1$user_pk &
                            event_df$content_pk %in% video1$content_pk,]
 
-c <- unique(video_event1[,"content_pk"])
+c <- unique(video_event1[,"title"])
 
 b <- video_event1 %>%
-  group_by(user_pk,content_pk) %>%
+  group_by(user_pk,title) %>%
   dplyr::summarise(n= n()) %>%
-  spread(content_pk,n) %>%
+  spread(title,n) %>%
   group_by(user_pk) %>%
   summarise_at(vars(as.factor(c)), sum, na.rm = TRUE)
 
-b <- b %>% rename_at(vars(as.factor(c)), ~ paste0('n_times_opened_video', 1:length(c)))
+#b <- b %>% rename_at(vars(as.factor(c)), ~ paste0('n_times_opened_video', 1:length(c)))
 
 course1 <- merge(course1,b,by="user_pk",all.x = TRUE)
 course1 <- replace(course1, is.na(course1), 0)
