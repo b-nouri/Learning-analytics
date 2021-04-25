@@ -9,53 +9,36 @@ library(lubridate)
 library(caret)
 library(doParallel)
 registerDoParallel(cores=4)
-library(cluster)
 library(factoextra)
 
 #--------Load Data-------------------------------------------
 events <- read.csv("c:/ALCAPAS/Anon_events.dsv",
-                      sep="\t", quote = "",na.strings = c("", "NA"))
+                   sep="\t", quote = "",na.strings = c("", "NA"))
 colnames(events) <- c("content_pk", "user_pk", "timestamp")
 
 attempts_ <- read.csv("c:/ALCAPAS/TEW/attempts_Tier4.dsv",
-                     sep="\t", quote = "",na.strings = c("", "NA"),header = F)
-
-colnames(attempts_) <- c("user_pk", "content_id", "start_date","submit_date",
-                        "score","grade","first_attempt","last_attempt","highest_attempt","lowest_attempt")
-attempts <- attempts_[2:nrow(attempts_),1:10]
-
-SAP_ <- read.csv("c:/ALCAPAS/TEW/SAP_Tier4.dsv",
                       sep="\t", quote = "",na.strings = c("", "NA"),header = F)
 
-colnames(SAP_) <- SAP_[1,]
-colnames(SAP_) <- tolower(colnames(SAP_))
-colnames(SAP_) <- c("opo_id", "course_name","user_pk",
-                         "type of program","program","ucm_sap","activity_code",
-                    "current_phase","score_january","score_june",
-                    "final_score","course_pk")
+colnames(attempts_) <- c("user_pk", "content_id", "start_date","submit_date",
+                         "score","grade","first_attempt","last_attempt","highest_attempt","lowest_attempt")
+attempts <- attempts_[2:nrow(attempts_),1:10]
+
+SAP_ <- read.csv("c:/ALCAPAS/Anon_SAP_data.dsv",
+                 sep="\t", quote = "",na.strings = c("", "NA"),header = F)
+
+colnames(SAP_) <- c("course_id", "opo_id", "course_name","user_pk",
+                    "type of program","program","current_phase","score_january","score_june","final_score")
+sap <- SAP_[2:nrow(SAP_),]
+colnames(sap)[1] <- "course_pk"
 
 # colnames(SAP_) <- c("course_pk","opo_id", "course_name","user_pk",
 #                     "type of program","program",
 #                     "current_phase","score_january","score_june",
 #                     "final_score")
 
-SAP_$course_pk <- as.integer(SAP_$course_pk)
-SAP_$final_score <- as.integer(SAP_$final_score)
-
-sap <- SAP_[2:nrow(SAP_),]
-
-
-
-sessions_ <- read.csv("c:/ALCAPAS/Anon_sessions.dsv",
-                      sep="\t", quote = "",na.strings = c("", "NA"),header = F)
-
-colnames(sessions_) <- c("session_id", "user_pk", "event_type","timestamp")
-
-sessions <- sessions_[2:nrow(sessions_),]
-
 
 contents <- read.csv("c:/ALCAPAS/content_items_with_courses.dsv",
-                      sep="\t", quote = "",na.strings = c("", "NA"),header = T)
+                     sep="\t", quote = "",na.strings = c("", "NA"),header = T)
 
 colnames(contents) <- tolower(colnames(contents))
 colnames(contents)[1] <- "course_pk"
@@ -71,10 +54,6 @@ attempts <- as.data.frame(attempts)
 
 events <- sapply(events, function(x) {str_replace_all(x, '"', "")})
 events <- as.data.frame(events)
-
-sessions <- sapply(sessions, function(x) {str_replace_all(x, '"', "")})
-sessions <- as.data.frame(sessions)
-
 
 sap <- sapply(sap, function(x) {str_replace_all(x, '"', "")})
 sap <- as.data.frame(sap)
@@ -142,8 +121,8 @@ formative_content <- content_df %>%
            content_type == "resource/x-turnitin-assignment" | content_type == "resource/x-osv-kaltura/mashup" |
            content_type == "resource/x-plugin-scormengine") %>%
   mutate(test_score_type = ifelse((is.na(possible_score) | possible_score == 0 )& content_type != "resource/x-turnitin-assignment","Video Content",
-                           ifelse(is.na(possible_score) & content_type == "resource/x-turnitin-assignment","turnitin assignment (grade unknown)",
-                           ifelse(content_type == "resource/x-bb-asmt-test-link","graded test","graded other format (grade unknown)"))))
+                                  ifelse(is.na(possible_score) & content_type == "resource/x-turnitin-assignment","turnitin assignment (grade unknown)",
+                                         ifelse(content_type == "resource/x-bb-asmt-test-link","graded test","graded other format (grade unknown)"))))
 
 
 course_formative <- formative_content %>%
@@ -182,7 +161,7 @@ programs_courses_df <- sap %>%
 ggplot(programs_courses_df[programs_courses_df$n_courses_program > 2,],aes(x=program,y=n_courses_program)) +
   geom_col() +
   theme(legend.position = "none",
-    axis.text.x = element_text(angle = 70, vjust = 1, hjust=1)
+        axis.text.x = element_text(angle = 70, vjust = 1, hjust=1)
   ) +
   labs(title = "Number of courses in each program",
        subtitle = "(Only the programs having more than 2 courses)",
@@ -220,7 +199,7 @@ ggplot(programs_df[(programs_df$n_students_course>100 & programs_df$n_courses_pr
     # Change legend key size and key width
     legend.key.size = unit(0.4, "cm"),
     legend.key.width = unit(0.2,"cm")  
-    )
+  )
 
 
 ggplot(programs_df[(programs_df$n_students_course>100 & programs_df$n_courses_program > 2),],aes(x=program,y=n_students_course,color=course_name,fill=course_name)) +
@@ -315,14 +294,13 @@ nn <- attempts %>%
                    .groups = 'keep')
 names(nn)[1] <- "content_pk"
 attempt_student <- merge(nn,content_df[,c("content_pk","course_pk","title",
-        "possible_score","content_type")],by="content_pk")
+                                          "possible_score","content_type")],by="content_pk")
 
 attempt_student <- attempt_student %>%
   mutate(test_percentage = (highest/possible_score*100))
 rm(nn)
 
-attempt_student_selected <- attempts[(attempts$content_id %in% content_df[(content_df$course_pk==888132),"content_pk"]),]
-
+attempt_student_selected <- attempts[(attempts$content_id %in% content_df[(content_df$course_pk==888954),"content_pk"]),]
 
 ###-------events------###
 event_course_week <- event_df %>%
@@ -342,33 +320,30 @@ event_course <- event_df %>%
 #selected courses: accountancy (TEW) - 888130, 
 #Bank- en financie - 888132, de globale economie - 888954
 sap$final_score <- as.integer(sap$final_score)
-sap1 <- sap[sap$course_pk == 888132 &
+sap1 <- sap[sap$course_pk == 888954 &
               sap$final_score > 0 &
               sap$program == "ABA toegepaste economische wetenschappen (Leuv)",]
 
 
-attempt_student1 <- attempt_student[attempt_student$course_pk == 888132 &
-                    attempt_student$user_pk %in% sap1$user_pk,]
+attempt_student1 <- attempt_student[attempt_student$course_pk == 888954 &
+                                      attempt_student$user_pk %in% sap1$user_pk,]
 
-event_course_week1 <- event_course_week[event_course_week$course_pk == 888132 &
+event_course_week1 <- event_course_week[event_course_week$course_pk == 888954 &
                                           event_course_week$academic_week < 38,]
 
-event_week_day1 <- event_week_day[event_week_day$course_pk == 888132 &
+event_week_day1 <- event_week_day[event_week_day$course_pk == 888954 &
                                     event_course_week$academic_week < 38,]
 
-event_course1 <- event_course[event_course$course_pk == 888132 &
+event_course1 <- event_course[event_course$course_pk == 888954 &
                                 event_course$user_pk %in% sap1$user_pk,]
 
-formative_content1 <- formative_content[formative_content$course_pk == 888132,]
+formative_content1 <- formative_content[formative_content$course_pk == 888954,]
 
 course1 <- sap1 %>%
   select(course_name,user_pk,final_score)
 
 #course1 <- merge(course1,event_course1[,c("user_pk","n_event_course")],by="user_pk")
 
-ggplot(course1,aes(x=n_event_course,y=final_score)) +
-  geom_point() +
-  geom_smooth(method='lm', formula= y~x)
 
 c <- attempt_student1 %>%
   distinct(content_pk)
@@ -382,7 +357,7 @@ b <- attempt_student1 %>%
   summarise_at(vars(c$content_pk), sum, na.rm = TRUE)
 
 
-b <- b %>% rename_at(vars(c$content_pk), ~ paste0('test', 1:19))
+b <- b %>% rename_at(vars(c$content_pk), ~ paste0('test', 1:13))
 course1 <- merge(course1,b,by="user_pk",all.x = TRUE)
 
 sum(is.na(course1))
@@ -390,8 +365,7 @@ vis_miss(course1)
 course1 <- course1 %>%
   mutate(n_tests_taken =  rowSums(. != 0)-4) 
 
-course1 <- course1 %>%
-  mutate(n_tests_taken = ifelse(is.na(course1$n_tests_taken),0,course1$n_tests_taken))
+
 
 course1$test1 <- replace(course1$test1, is.na(course1$test1), median(course1$test1,na.rm = T))
 course1$test2 <- replace(course1$test2, is.na(course1$test2), median(course1$test2,na.rm = T))
@@ -406,18 +380,15 @@ course1$test10 <- replace(course1$test10, is.na(course1$test10), median(course1$
 course1$test11 <- replace(course1$test11, is.na(course1$test11), median(course1$test11,na.rm = T))
 course1$test12 <- replace(course1$test12, is.na(course1$test12), median(course1$test12,na.rm = T))
 course1$test13 <- replace(course1$test13, is.na(course1$test13), median(course1$test13,na.rm = T))
-course1$test14 <- replace(course1$test14, is.na(course1$test14), median(course1$test14,na.rm = T))
-course1$test15 <- replace(course1$test15, is.na(course1$test15), median(course1$test15,na.rm = T))
-course1$test16 <- replace(course1$test16, is.na(course1$test16), median(course1$test16,na.rm = T))
-course1$test17 <- replace(course1$test17, is.na(course1$test17), median(course1$test17,na.rm = T))
-course1$test18 <- replace(course1$test18, is.na(course1$test18), median(course1$test18,na.rm = T))
-course1$test19 <- replace(course1$test19, is.na(course1$test19), median(course1$test19,na.rm = T))
+
+course1 <- course1 %>%
+  mutate(n_tests_taken = ifelse(is.na(course1$n_tests_taken),0,course1$n_tests_taken))
 
 vis_miss(course1)
 
 course1 <- course1 %>%
-  mutate(sum_tests_taken =  select(.,test1:test19) %>% rowSums(.))
-           
+  mutate(sum_tests_taken =  select(.,test1:test13) %>% rowSums(.))
+
 course1 <- course1 %>%
   mutate(n_tests_taken = ifelse(is.na(course1$n_tests_taken),0,course1$n_tests_taken))
 
@@ -437,7 +408,7 @@ b <- attempt_student1 %>%
   summarise_at(vars(c$content_pk), sum, na.rm = TRUE)
 
 
-b <- b %>% rename_at(vars(c$content_pk), ~ paste0('test_percentage', 1:19))
+b <- b %>% rename_at(vars(c$content_pk), ~ paste0('test_percentage', 1:13))
 course1 <- merge(course1,b,by="user_pk",all.x = TRUE)
 
 sum(is.na(course1))
@@ -456,17 +427,11 @@ course1$test_percentage10 <- replace(course1$test_percentage10, is.na(course1$te
 course1$test_percentage11 <- replace(course1$test_percentage11, is.na(course1$test_percentage11), median(course1$test_percentage11,na.rm = T))
 course1$test_percentage12 <- replace(course1$test_percentage12, is.na(course1$test_percentage12), median(course1$test_percentage12,na.rm = T))
 course1$test_percentage13 <- replace(course1$test_percentage13, is.na(course1$test_percentage13), median(course1$test_percentage13,na.rm = T))
-course1$test_percentage14 <- replace(course1$test_percentage14, is.na(course1$test_percentage14), median(course1$test_percentage14,na.rm = T))
-course1$test_percentage15 <- replace(course1$test_percentage15, is.na(course1$test_percentage15), median(course1$test_percentage15,na.rm = T))
-course1$test_percentage16 <- replace(course1$test_percentage16, is.na(course1$test_percentage16), median(course1$test_percentage16,na.rm = T))
-course1$test_percentage17 <- replace(course1$test_percentage17, is.na(course1$test_percentage17), median(course1$test_percentage17,na.rm = T))
-course1$test_percentage18 <- replace(course1$test_percentage18, is.na(course1$test_percentage18), median(course1$test_percentage18,na.rm = T))
-course1$test_percentage19 <- replace(course1$test_percentage19, is.na(course1$test_percentage19), median(course1$test_percentage19,na.rm = T))
 
 vis_miss(course1)
 
 course1 <- course1 %>%
-  mutate(average_tests_taken =  select(.,test_percentage1:test_percentage19) %>% rowMeans(.))
+  mutate(average_tests_taken =  select(.,test_percentage1:test_percentage13) %>% rowMeans(.))
 
 
 #----------###
@@ -482,12 +447,12 @@ b <- attempt_student1 %>%
   summarise_at(vars(c$content_pk), sum, na.rm = TRUE)
 
 
-b <- b %>% rename_at(vars(c$content_pk), ~ paste0('n_tries_test', 1:19))
+b <- b %>% rename_at(vars(c$content_pk), ~ paste0('n_tries_test', 1:13))
 course1 <- merge(course1,b,by="user_pk",all.x = TRUE)
 
 course1 <- course1 %>%
   mutate_all(~replace(., is.na(.), 0)) %>%
-  mutate(total_test_attempts = select(.,n_tries_test1:n_tries_test19) %>% rowSums(.))
+  mutate(total_test_attempts = select(.,n_tries_test1:n_tries_test13) %>% rowSums(.))
 
 rm(b)
 rm(c)
@@ -511,9 +476,7 @@ course1 <- replace(course1, is.na(course1), 0)
 rm(b)
 rm(c)
 
-course1 <- course1 %>%
-  mutate(total_test_attempts = select(.,n_tries_test1:n_tries_test19) %>% rowSums(.))
- 
+
 
 course1 <- course1 %>%
   mutate(sum_events_week2 = select(.,n_event_week1:n_event_week2)%>% rowSums(.)) %>%
@@ -527,17 +490,12 @@ course1 <- course1 %>%
   mutate(sum_events_week10 = select(.,n_event_week1:n_event_week10)%>% rowSums(.)) %>%
   mutate(sum_events_week11 = select(.,n_event_week1:n_event_week11)%>% rowSums(.)) %>%
   mutate(sum_events_week12 = select(.,n_event_week1:n_event_week12)%>% rowSums(.)) %>%
-  mutate(sum_events_week13 = select(.,n_event_week1:n_event_week13)%>% rowSums(.)) %>%
-  mutate(sum_events_week14 = select(.,n_event_week1:n_event_week14)%>% rowSums(.)) %>%
-  mutate(sum_events_week15 = select(.,n_event_week1:n_event_week15)%>% rowSums(.)) %>%
-  mutate(sum_events_week16 = select(.,n_event_week1:n_event_week16)%>% rowSums(.)) %>%
-  mutate(sum_events_week17 = select(.,n_event_week1:n_event_week17)%>% rowSums(.)) %>%
-  mutate(sum_events_week18 = select(.,n_event_week1:n_event_week18)%>% rowSums(.))
-  
- 
+  mutate(sum_events_week13 = select(.,n_event_week1:n_event_week13)%>% rowSums(.))
+
+
 
 b = paste0("n_event_week",1+1)
-  
+
 c <- unique(event_week_day1[,"academic_week"])
 c <- c %>%
   arrange(academic_week)
@@ -555,7 +513,7 @@ course1 <- replace(course1, is.na(course1), 0)
 rm(b)
 rm(c)
 
-content1 <- content_df[content_df$course_pk == 888132,]
+content1 <- content_df[content_df$course_pk == 888954,]
 
 video1 <- content1[content1$content_type %in% c('resource/x-osv-kaltura/mashup',
                                                 'resource/x-bb-toollink'),]
@@ -602,6 +560,7 @@ fviz_nbclust(df1, kmeans, method = "wss")
 
 fviz_nbclust(df1, kmeans, method = "silhouette")
 
+library(cluster)
 gap_stat <- clusGap(df1, FUN = kmeans, nstart = 25,
                     K.max = 20, B = 50)
 
@@ -613,7 +572,7 @@ final1 <- kmeans(df1, 2, nstart = 25)
 fviz_cluster(final1, data = df1)
 
 set.seed(123)
-final2 <- kmeans(df1, 5, nstart = 25)
+final2 <- kmeans(df1, 3, nstart = 25)
 fviz_cluster(final2, data = df1)
 
 
@@ -640,11 +599,11 @@ test_course1 <- test1[,4:ncol(test1)]
 train.control <- trainControl(method="LOOCV")
 
 #train.control <- trainControl(method = "repeatedcv",
-#                              number = 10, repeats = 3)
+#                             number = 10, repeats = 3)
 
 
 model1_PR <- train(final_score ~ . , data = train_course1,
-                    method = "parRF", trControl = train.control,metric = "MAE",
+                   method = "parRF", trControl = train.control,metric = "MAE",
                    importance=T)
 
 # model2_svm <- train(final_score ~ . , data = train_course1,
@@ -655,8 +614,8 @@ model1_PR <- train(final_score ~ . , data = train_course1,
 
 
 model4_elasticnet <- train(final_score ~ . , data = train_course1,
-                         method = "glmnet", trControl = train.control,metric = "MAE",
-                         preProcess = c())
+                           method = "glmnet", trControl = train.control,metric = "MAE",
+                           preProcess = c())
 
 # model5_xgbTree <- train(final_score ~ . , data = train_course1,
 #                         method = "xgbTree", trControl = train.control,metric = "MAE")
@@ -693,65 +652,14 @@ names(results)[5] <- "prediction_glmnet"
 #names(results)[8] <- "prediction_xgbTree"
 names(results)[6] <- "prediction_gbm"
 
-results1 <- results %>%
-  mutate(score_class = cut(as.numeric(results$actual_final_score), breaks=c(0,9.9,21), labels=c( 'pass', 'fail'))) %>%
-  mutate(class_rf = cut(as.numeric(results$prediction_rf), breaks=c(0,9.9,21), labels=c( 'pass', 'fail'))) %>%
-  mutate(class_svm = cut(as.numeric(results$prediction_svm), breaks=c(0,9.9,21), labels=c( 'pass', 'fail'))) %>%
-  mutate(class_glm = cut(as.numeric(results$prediction_glm), breaks=c(0,9.9,21), labels=c( 'pass', 'fail'))) %>%
-  mutate(class_glmnet = cut(as.numeric(results$prediction_glmnet), breaks=c(0,9.9,21), labels=c( 'pass', 'fail'))) %>%
-  mutate(class_xgbtree = cut(as.numeric(results$prediction_xgbTree), breaks=c(0,9.9,21), labels=c( 'pass', 'fail'))) %>%
-  mutate(class_gbm = cut(as.numeric(results$prediction_gbm), breaks=c(0,9.9,21), labels=c( 'pass', 'fail')))
-
-library(cvms)
-conf_matrm <- confusion_matrix(targets = results1$score_class,
-                 predictions = results1$class_rf)
-conf_matsvm <- confusion_matrix(targets = results1$score_class,
-                               predictions = results1$class_svm)
-conf_matglm <- confusion_matrix(targets = results1$score_class,
-                               predictions = results1$class_glm)
-conf_matglmnet <- confusion_matrix(targets = results1$score_class,
-                               predictions = results1$class_glmnet)
-conf_matxbtree <- confusion_matrix(targets = results1$score_class,
-                               predictions = results1$class_xgbtree)
-conf_matgbm <- confusion_matrix(targets = results1$score_class,
-                               predictions = results1$class_gbm)
-
-conf_matrm
-conf_matsvm
-conf_matglm
-conf_matglmnet
-conf_matxbtree
-conf_matgbm
-
-
-
-
 gbmImp <- varImp(model6_gbm, conditional=TRUE)
 gbmImp <- varImp(model6_gbm, scale = FALSE)
 vImpGbm=varImp(model6_gbm)
 gbmImp
 plot(gbmImp, top = 32)
 
-#rm(accuracy1)
-#accuracy1 <- as.data.frame(cbind("rf",mae_test_rf,conf_matrm$`Balanced Accuracy`,conf_matrm$F1))
-#names(accuracy1) <- c("algorithm","mae","accuracy","F1")
-accuracy <- data.frame(c("rf2",mae_test_rf,conf_matrm$`Balanced Accuracy`,conf_matrm$F1),
-                       c("svm2",mae_test_svm,conf_matsvm$`Balanced Accuracy`,conf_matsvm$F1),
-                       c("glm2",mae_test_glm,conf_matglm$`Balanced Accuracy`,conf_matglm$F1),
-                       c("glmnet2",mae_test_glmnet,conf_matglmnet$`Balanced Accuracy`,conf_matglmnet$F1),  
-                       c("xgbtree2",mae_test_xgbTree,conf_matxbtree$`Balanced Accuracy`,conf_matxbtree$F1),  
-                       c("gbm2",mae_test_gbm,conf_matgbm$`Balanced Accuracy`,conf_matgbm$F1))
-accuracy <- data.frame(t(accuracy))
-names(accuracy) <- c("algorithm","mae","accuracy","F1")
 
-accuracy1 <- rbind(accuracy1,accuracy)
-accuracy1 <- accuracy1[1:6,]
-mae_test_rf
-mae_test_svm
-mae_test_glm
-mae_test_glmnet
-mae_test_xgbTree
-mae_test_gbm
+
 
 results <- results %>%
   mutate(score_rf =round(prediction_rf,0)) %>%
@@ -760,7 +668,7 @@ results <- results %>%
   mutate(score_glmnet =round(prediction_glmnet,0)) %>%
   #mutate(score_xgbTree =round(prediction_xgbTree,0)) %>%
   mutate(score_gbm =round(prediction_gbm,0))
-  
+
 mae_test_rf <- mean(abs(results$score_rf-results$actual_final_score))
 # mae_test_svm <- mean(abs(results$score_svm-results$actual_final_score))
 # mae_test_glm <- mean(abs(results$score_glm-results$actual_final_score))
@@ -784,8 +692,11 @@ course1 <- tibble::rowid_to_column(course1, "row")
 set.seed(123)
 
 course1 <- course1 %>%
-  mutate(score_class = cut(as.numeric(course1$final_score), breaks=c(0,9.9,21), labels=c( 'fail', 'pass'))) %>%
-  mutate(score_class = as.factor(course1$score_class))
+  mutate(score_class = cut(as.numeric(course1$final_score), breaks=c(0,9.9,21), labels=c( 'fail', 'pass')))
+
+  
+course1 <- course1 %>%
+    mutate(score_class = as.factor(course1$score_class))
 
 #c1 <- course1[course1$cluster==2,]
 c1 <- course1[,]
