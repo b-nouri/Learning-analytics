@@ -490,8 +490,12 @@ course1 <- course1 %>%
   mutate(sum_events_week10 = select(.,n_event_week1:n_event_week10)%>% rowSums(.)) %>%
   mutate(sum_events_week11 = select(.,n_event_week1:n_event_week11)%>% rowSums(.)) %>%
   mutate(sum_events_week12 = select(.,n_event_week1:n_event_week12)%>% rowSums(.)) %>%
-  mutate(sum_events_week13 = select(.,n_event_week1:n_event_week13)%>% rowSums(.))
-
+  mutate(sum_events_week13 = select(.,n_event_week1:n_event_week13)%>% rowSums(.)) %>%
+  mutate(sum_events_week14 = select(.,n_event_week1:n_event_week14)%>% rowSums(.)) %>%
+  mutate(sum_events_week15 = select(.,n_event_week1:n_event_week15)%>% rowSums(.)) %>%
+  mutate(sum_events_week16 = select(.,n_event_week1:n_event_week16)%>% rowSums(.)) %>%
+  mutate(sum_events_week17 = select(.,n_event_week1:n_event_week17)%>% rowSums(.)) %>%
+  mutate(sum_events_week18 = select(.,n_event_week1:n_event_week18)%>% rowSums(.))
 
 
 b = paste0("n_event_week",1+1)
@@ -775,39 +779,6 @@ confusionMatrix(results$prediction_rf, reference = as.factor(results$actual_clas
 confusionMatrix(results$prediction_glmnet, reference = as.factor(results$actual_class))
 confusionMatrix(results$prediction_gbm, reference = as.factor(results$actual_class))
 
-# conf_matrm <- confusion_matrix(targets = results$actual_class,
-#                                predictions = results$prediction_rf)
-# 
-# conf_matglmnet <- confusion_matrix(targets = results$actual_class,
-#                                    predictions = results$prediction_glmnet)
-# 
-# conf_matgbm <- confusion_matrix(targets = results$actual_class,
-#                                 predictions = results$prediction_gbm)
-# 
-# conf_matrm
-# conf_matglmnet
-# conf_matgbm
-
-#rm(accuracy1)
-#accuracy1 <- as.data.frame(cbind("rf",mae_test_rf,conf_matrm$`Balanced Accuracy`,conf_matrm$F1))
-#names(accuracy1) <- c("algorithm","mae","accuracy","F1")
-accuracy <- data.frame(c("rf2",conf_matrm$`Balanced Accuracy`,conf_matrm$F1),
-                       c("svm2",conf_matsvm$`Balanced Accuracy`,conf_matsvm$F1),
-                       c("glm2",conf_matglm$`Balanced Accuracy`,conf_matglm$F1),
-                       c("glmnet2",conf_matglmnet$`Balanced Accuracy`,conf_matglmnet$F1),  
-                       c("xgbtree2",conf_matxbtree$`Balanced Accuracy`,conf_matxbtree$F1),  
-                       c("gbm2",conf_matgbm$`Balanced Accuracy`,conf_matgbm$F1))
-accuracy <- data.frame(t(accuracy))
-names(accuracy) <- c("algorithm","accuracy","F1")
-
-
-par(mar = c(5, 8, 1, 1))
-summary(
-  model6_gbm, 
-  cBars = 20,
-  method = relative.influence, 
-  las = 2
-)
 
 library(gbm)          # basic implementation
 library(xgboost)      # a faster implementation of gbm
@@ -815,3 +786,302 @@ library(xgboost)      # a faster implementation of gbm
 gbmImp <- varImp(model1_PR, conditional=TRUE)
 gbmImp
 plot(gbmImp, top = 32)
+
+
+
+##------Training and predicting over test grades----####
+course1 <- tibble::rowid_to_column(course1, "row")
+set.seed(123)
+
+course1 <- course1 %>%
+  mutate(score_class = cut(as.numeric(course1$final_score), breaks=c(0,9.9,21), labels=c( 'fail', 'pass')))
+
+
+course1 <- course1 %>%
+  mutate(score_class = as.factor(course1$score_class))
+
+#c1 <- course1[course1$cluster==2,]
+c1 <- course1[,]
+
+library(splitstackshape)
+train1 <- stratified(c1, c("score_class"), 0.8)
+
+sid<-train1$row
+test1 <- c1[!(c1$row %in% sid),]
+
+scores <- train1[,204]
+
+train_course1 <- train1[,4:46]
+train_course1 <- bind_cols(train_course1, scores)
+
+id_test1 <- test1[,1:2]
+test_course1 <- test1[,4:46]
+table(train_course1$score_class)
+
+###-------------Classification------------###
+train.control <- trainControl(method="LOOCV",classProbs = TRUE)
+
+model_weights <- ifelse(train_course1$score_class == "pass",
+                        (1/table(train_course1$score_class)[1]) * 0.5,
+                        (1/table(train_course1$score_class)[2]) * 0.5)
+
+#train_course1$score_class <- as.factor(train_course1$score_class)
+#train.control <- trainControl(method = "repeatedcv",
+#                              number = 10, repeats = 3,classProbs = TRUE)
+
+model1_PR <- train(score_class ~ . , data = train_course1,
+                   method = "parRF",   weights = model_weights,
+                   trControl = train.control,metric="ROC")
+
+#model2_svm <- train(score_class ~ . , data = train_course1,
+#                    method = "svmLinear", trControl = train.control,metric="ROC")
+
+#model3_glm <- train(score_class ~ . , data = train_course1,
+#                    method = "glmStepAIC", trControl = train.control,metric="ROC",
+#                    preProcess = c("zv", "center", "scale", "pca"))
+
+model4_elasticnet <- train(score_class ~ . , data = train_course1,
+                           method = "glmnet", weights = model_weights,
+                           trControl = train.control,metric="ROC",
+                           preProcess = c())
+
+#model5_xgbTree <- train(score_class ~ . , data = train_course1,
+#                       method = "xgbTree", trControl = train.control,metric="ROC")
+
+
+model6_gbm <- train(score_class ~ . , data = train_course1,
+                    method = "gbm", weights = model_weights,
+                    trControl = train.control,metric="ROC")
+
+
+print(max(model1_PR$results$Accuracy))
+print(max(model4_elasticnet$results$Accuracy))
+print(max(model6_gbm$results$Accuracy))
+
+
+pred1 <- data.frame(predict(model1_PR, test_course1, type = "raw"))
+pred4 <- data.frame(predict(model4_elasticnet, test_course1, type = "raw"))
+pred6 <- data.frame(predict(model6_gbm, test_course1, type = "raw"))
+
+rm(results)
+results <- cbind(id_test1$user_pk,as.vector(test1$score_class))
+
+
+results <- cbind(results,pred1,pred4,pred6)
+names(results)[2] <- "actual_class"
+names(results)[3] <- "prediction_rf"
+names(results)[4] <- "prediction_glmnet"
+names(results)[5] <- "prediction_gbm"
+
+#library (ROCR)
+
+confusionMatrix(results$prediction_rf, reference = as.factor(results$actual_class))
+confusionMatrix(results$prediction_glmnet, reference = as.factor(results$actual_class))
+confusionMatrix(results$prediction_gbm, reference = as.factor(results$actual_class))
+
+
+library(gbm)          # basic implementation
+library(xgboost)      # a faster implementation of gbm
+
+gbmImp <- varImp(model1_PR, conditional=TRUE)
+gbmImp
+plot(gbmImp, top = 32)
+
+
+##------Training and predicting over activity in weeks----####
+course1 <- tibble::rowid_to_column(course1, "row")
+set.seed(123)
+
+course1 <- course1 %>%
+  mutate(score_class = cut(as.numeric(course1$final_score), breaks=c(0,9.9,21), labels=c( 'fail', 'pass')))
+
+
+course1 <- course1 %>%
+  mutate(score_class = as.factor(course1$score_class))
+
+#c1 <- course1[course1$cluster==2,]
+c1 <- course1[,]
+
+library(splitstackshape)
+train1 <- stratified(c1, c("score_class"), 0.8)
+
+sid<-train1$row
+test1 <- c1[!(c1$row %in% sid),]
+
+scores <- train1[,209]
+
+train_course1 <- train1[,47:99]
+train_course1 <- bind_cols(train_course1, scores)
+
+id_test1 <- test1[,1:2]
+test_course1 <- test1[,47:99]
+table(train_course1$score_class)
+
+###-------------Classification------------###
+train.control <- trainControl(method="LOOCV",classProbs = TRUE)
+
+model_weights <- ifelse(train_course1$score_class == "pass",
+                        (1/table(train_course1$score_class)[1]) * 0.5,
+                        (1/table(train_course1$score_class)[2]) * 0.5)
+
+#train_course1$score_class <- as.factor(train_course1$score_class)
+#train.control <- trainControl(method = "repeatedcv",
+#                              number = 10, repeats = 3,classProbs = TRUE)
+
+model1_PR <- train(score_class ~ . , data = train_course1,
+                   method = "parRF",   weights = model_weights,
+                   trControl = train.control,metric="ROC")
+
+#model2_svm <- train(score_class ~ . , data = train_course1,
+#                    method = "svmLinear", trControl = train.control,metric="ROC")
+
+#model3_glm <- train(score_class ~ . , data = train_course1,
+#                    method = "glmStepAIC", trControl = train.control,metric="ROC",
+#                    preProcess = c("zv", "center", "scale", "pca"))
+
+model4_elasticnet <- train(score_class ~ . , data = train_course1,
+                           method = "glmnet", weights = model_weights,
+                           trControl = train.control,metric="ROC",
+                           preProcess = c())
+
+#model5_xgbTree <- train(score_class ~ . , data = train_course1,
+#                       method = "xgbTree", trControl = train.control,metric="ROC")
+
+
+model6_gbm <- train(score_class ~ . , data = train_course1,
+                    method = "gbm", weights = model_weights,
+                    trControl = train.control,metric="ROC")
+
+
+print(max(model1_PR$results$Accuracy))
+print(max(model4_elasticnet$results$Accuracy))
+print(max(model6_gbm$results$Accuracy))
+
+
+pred1 <- data.frame(predict(model1_PR, test_course1, type = "raw"))
+pred4 <- data.frame(predict(model4_elasticnet, test_course1, type = "raw"))
+pred6 <- data.frame(predict(model6_gbm, test_course1, type = "raw"))
+
+rm(results)
+results <- cbind(id_test1$user_pk,as.vector(test1$score_class))
+
+
+results <- cbind(results,pred1,pred4,pred6)
+names(results)[2] <- "actual_class"
+names(results)[3] <- "prediction_rf"
+names(results)[4] <- "prediction_glmnet"
+names(results)[5] <- "prediction_gbm"
+
+#library (ROCR)
+
+confusionMatrix(results$prediction_rf, reference = as.factor(results$actual_class))
+confusionMatrix(results$prediction_glmnet, reference = as.factor(results$actual_class))
+confusionMatrix(results$prediction_gbm, reference = as.factor(results$actual_class))
+
+
+library(gbm)          # basic implementation
+library(xgboost)      # a faster implementation of gbm
+
+gbmImp <- varImp(model1_PR, conditional=TRUE)
+gbmImp
+plot(gbmImp, top = 32)
+
+
+##------Training and predicting over activity in weeks----####
+course1 <- tibble::rowid_to_column(course1, "row")
+set.seed(123)
+
+course1 <- course1 %>%
+  mutate(score_class = cut(as.numeric(course1$final_score), breaks=c(0,9.9,21), labels=c( 'fail', 'pass')))
+
+
+course1 <- course1 %>%
+  mutate(score_class = as.factor(course1$score_class))
+
+#c1 <- course1[course1$cluster==2,]
+c1 <- course1[,]
+
+library(splitstackshape)
+train1 <- stratified(c1, c("score_class"), 0.8)
+
+sid<-train1$row
+test1 <- c1[!(c1$row %in% sid),]
+
+scores <- train1[,209]
+
+train_course1 <- train1[,100:207]
+train_course1 <- bind_cols(train_course1, scores)
+
+id_test1 <- test1[,1:2]
+test_course1 <- test1[,100:207]
+table(train_course1$score_class)
+
+###-------------Classification------------###
+train.control <- trainControl(method="LOOCV",classProbs = TRUE)
+
+model_weights <- ifelse(train_course1$score_class == "pass",
+                        (1/table(train_course1$score_class)[1]) * 0.5,
+                        (1/table(train_course1$score_class)[2]) * 0.5)
+
+#train_course1$score_class <- as.factor(train_course1$score_class)
+#train.control <- trainControl(method = "repeatedcv",
+#                              number = 10, repeats = 3,classProbs = TRUE)
+
+model1_PR <- train(score_class ~ . , data = train_course1,
+                   method = "parRF",   weights = model_weights,
+                   trControl = train.control,metric="ROC")
+
+#model2_svm <- train(score_class ~ . , data = train_course1,
+#                    method = "svmLinear", trControl = train.control,metric="ROC")
+
+#model3_glm <- train(score_class ~ . , data = train_course1,
+#                    method = "glmStepAIC", trControl = train.control,metric="ROC",
+#                    preProcess = c("zv", "center", "scale", "pca"))
+
+model4_elasticnet <- train(score_class ~ . , data = train_course1,
+                           method = "glmnet", weights = model_weights,
+                           trControl = train.control,metric="ROC",
+                           preProcess = c())
+
+#model5_xgbTree <- train(score_class ~ . , data = train_course1,
+#                       method = "xgbTree", trControl = train.control,metric="ROC")
+
+
+model6_gbm <- train(score_class ~ . , data = train_course1,
+                    method = "gbm", weights = model_weights,
+                    trControl = train.control,metric="ROC")
+
+
+print(max(model1_PR$results$Accuracy))
+print(max(model4_elasticnet$results$Accuracy))
+print(max(model6_gbm$results$Accuracy))
+
+
+pred1 <- data.frame(predict(model1_PR, test_course1, type = "raw"))
+pred4 <- data.frame(predict(model4_elasticnet, test_course1, type = "raw"))
+pred6 <- data.frame(predict(model6_gbm, test_course1, type = "raw"))
+
+rm(results)
+results <- cbind(id_test1$user_pk,as.vector(test1$score_class))
+
+
+results <- cbind(results,pred1,pred4,pred6)
+names(results)[2] <- "actual_class"
+names(results)[3] <- "prediction_rf"
+names(results)[4] <- "prediction_glmnet"
+names(results)[5] <- "prediction_gbm"
+
+#library (ROCR)
+
+confusionMatrix(results$prediction_rf, reference = as.factor(results$actual_class))
+confusionMatrix(results$prediction_glmnet, reference = as.factor(results$actual_class))
+confusionMatrix(results$prediction_gbm, reference = as.factor(results$actual_class))
+
+
+library(gbm)          # basic implementation
+library(xgboost)      # a faster implementation of gbm
+
+gbmImp <- varImp(model1_PR, conditional=TRUE)
+gbmImp
+plot(gbmImp, top = 32)
+
