@@ -9,6 +9,7 @@ library(lubridate)
 library(caret)
 library(doParallel)
 registerDoParallel(cores=4)
+library(pROC)
 
 #--------Load Data-------------------------------------------
 events <- read.csv("c:/ALCAPAS/Anon_events.dsv",
@@ -432,7 +433,7 @@ b <- video_event1 %>%
   group_by(user_pk) %>%
   summarise_at(vars(as.factor(c)), sum, na.rm = TRUE)
 
-#b <- b %>% rename_at(vars(as.factor(c)), ~ paste0('n_times_opened_video', 1:length(c)))
+b <- b %>% rename_at(vars(as.factor(c)), ~ paste0('n_times_opened_video', 1:length(c)))
 
 course1 <- merge(course1,b,by="user_pk",all.x = TRUE)
 course1 <- replace(course1, is.na(course1), 0)
@@ -442,65 +443,103 @@ rm(c)
 
 course1 <- subset(course1, select=-c(course_name))
 ###--------Analysis - Forecasting------####
-###---Train Test Split----###
 course1 <- tibble::rowid_to_column(course1, "row")
 course1$final_score <- as.integer(course1$final_score)
 course1 <- subset(course1, select=-c(score_class))
 
-#course1 <- subset(course1, select=-c(n_event_course))
+##------Clustering-------###
+df1 <- scale(course1[,3:ncol(course1)])
+library(factoextra)
+library(cluster)
+distance <- get_dist(df1)
+fviz_dist(distance, gradient = list(low = "#00AFBB", mid = "white", high = "#FC4E07"))
+
+k2 <- kmeans(df1, centers = 4, nstart = 25)
+
+
+fviz_cluster(k2, data = df1)
+
 set.seed(123)
 
-train1 <-sample_frac(course1, 0.8)
+fviz_nbclust(df1, kmeans, method = "wss")
+
+fviz_nbclust(df1, kmeans, method = "silhouette")
+
+library(cluster)
+
+
+
+set.seed(123)
+final1 <- kmeans(df1, 2, nstart = 25)
+fviz_cluster(final1, data = df1)
+
+set.seed(123)
+final2 <- kmeans(df1, 3, nstart = 25)
+fviz_cluster(final2, data = df1)
+
+
+course1 <- course1 %>%
+  mutate(cluster = final2$cluster)
+
+###---Train Test Split----###
+#course1 <- subset(course1, select=-c(n_event_course))
+course1 <- subset(course1, select=-c(score_class))
+
+set.seed(123)
+
+c1 <- course1[,]
+train1 <-sample_frac(c1, 0.8)
 sid<-train1$row
-test1 <- course1[-sid,]
+test1 <- c1[!(c1$row %in% sid),]
+#test1 <- test1[,]
 
 train_course1 <- train1[,3:ncol(train1)]
 
 id_test1 <- test1[,1:2]
-test_course1 <- test1[,4:ncol(test1)]
-str(train_course1)
+test_course1 <- test1[,4:(ncol(test1))]
+
 ##------Training and predicting----####
 
 train.control <- trainControl(method="LOOCV")
 
-train.control <- trainControl(method = "repeatedcv",
-                              number = 10, repeats = 3)
+#train.control <- trainControl(method = "repeatedcv",
+#                             number = 10, repeats = 3)
 
 
 model1_PR <- train(final_score ~ . , data = train_course1,
                    method = "parRF", trControl = train.control,metric = "MAE",
                    importance=T)
 
-model2_svm <- train(final_score ~ . , data = train_course1,
-                    method = "svmLinear", trControl = train.control,metric = "MAE")
-
-model3_glm <- train(final_score ~ . , data = train_course1,
-                    method = "glmStepAIC", trControl = train.control,metric = "MAE")
+# model2_svm <- train(final_score ~ . , data = train_course1,
+#                    method = "svmLinear", trControl = train.control,metric = "MAE")
+# 
+# model3_glm <- train(final_score ~ . , data = train_course1,
+#                          method = "glmStepAIC", trControl = train.control,metric = "MAE")
 
 
 model4_elasticnet <- train(final_score ~ . , data = train_course1,
                            method = "glmnet", trControl = train.control,metric = "MAE",
                            preProcess = c())
 
-model5_xgbTree <- train(final_score ~ . , data = train_course1,
-                        method = "xgbTree", trControl = train.control,metric = "MAE")
+# model5_xgbTree <- train(final_score ~ . , data = train_course1,
+#                         method = "xgbTree", trControl = train.control,metric = "MAE")
 
 
 model6_gbm <- train(final_score ~ . , data = train_course1,
                     method = "gbm", trControl = train.control,metric = "MAE")
 
 print(min(model1_PR$results$MAE))
-print(min(model2_svm$results$MAE))
-print(min(model3_glm$results$MAE))
+# print(min(model2_svm$results$MAE))
+# print(min(model3_glm$results$MAE))
 print(min(model4_elasticnet$results$MAE))
-print(min(model5_xgbTree$results$MAE))
+#print(min(model5_xgbTree$results$MAE))
 print(min(model6_gbm$results$MAE))
 
 pred1 <- data.frame(predict(model1_PR, test_course1, type = "raw"))
-pred2 <- data.frame(predict(model2_svm, test_course1, type = "raw"))
-pred3 <- data.frame(predict(model3_glm, test_course1, type = "raw"))
+# pred2 <- data.frame(predict(model2_svm, test_course1, type = "raw"))
+# pred3 <- data.frame(predict(model3_glm, test_course1, type = "raw"))
 pred4 <- data.frame(predict(model4_elasticnet, test_course1, type = "raw"))
-pred5 <- data.frame(predict(model5_xgbTree, test_course1, type = "raw"))
+#pred5 <- data.frame(predict(model5_xgbTree, test_course1, type = "raw"))
 pred6 <- data.frame(predict(model6_gbm, test_course1, type = "raw"))
 
 results <- cbind(id_test1,test1$final_score)
@@ -509,46 +548,13 @@ names(results)[3] <- "actual_final_score"
 # results <- cbind(results,pred5)
 # names(results)[4] <- "prediction_xgbTree"
 
-results <- cbind(results,pred1,pred2,pred3,pred4,pred5,pred6)
+results <- cbind(results,pred1,pred4,pred6)
 names(results)[4] <- "prediction_rf"
-names(results)[5] <- "prediction_svm"
-names(results)[6] <- "prediction_glm"
-names(results)[7] <- "prediction_glmnet"
-names(results)[8] <- "prediction_xgbTree"
-names(results)[9] <- "prediction_gbm"
-
-results1 <- results %>%
-  mutate(score_class = cut(as.numeric(results$actual_final_score), breaks=c(0,9.9,21), labels=c( 'pass', 'fail'))) %>%
-  mutate(class_rf = cut(as.numeric(results$prediction_rf), breaks=c(0,9.9,21), labels=c( 'pass', 'fail'))) %>%
-  mutate(class_svm = cut(as.numeric(results$prediction_svm), breaks=c(0,9.9,21), labels=c( 'pass', 'fail'))) %>%
-  mutate(class_glm = cut(as.numeric(results$prediction_glm), breaks=c(0,9.9,21), labels=c( 'pass', 'fail'))) %>%
-  mutate(class_glmnet = cut(as.numeric(results$prediction_glmnet), breaks=c(0,9.9,21), labels=c( 'pass', 'fail'))) %>%
-  mutate(class_xgbtree = cut(as.numeric(results$prediction_xgbTree), breaks=c(0,9.9,21), labels=c( 'pass', 'fail'))) %>%
-  mutate(class_gbm = cut(as.numeric(results$prediction_gbm), breaks=c(0,9.9,21), labels=c( 'pass', 'fail')))
-
-library(cvms)
-conf_matrm <- confusion_matrix(targets = results1$score_class,
-                               predictions = results1$class_rf)
-conf_matsvm <- confusion_matrix(targets = results1$score_class,
-                                predictions = results1$class_svm)
-conf_matglm <- confusion_matrix(targets = results1$score_class,
-                                predictions = results1$class_glm)
-conf_matglmnet <- confusion_matrix(targets = results1$score_class,
-                                   predictions = results1$class_glmnet)
-conf_matxbtree <- confusion_matrix(targets = results1$score_class,
-                                   predictions = results1$class_xgbtree)
-conf_matgbm <- confusion_matrix(targets = results1$score_class,
-                                predictions = results1$class_gbm)
-
-conf_matrm
-conf_matsvm
-conf_matglm
-conf_matglmnet
-conf_matxbtree
-conf_matgbm
-
-
-
+#names(results)[5] <- "prediction_svm"
+#names(results)[6] <- "prediction_glm"
+names(results)[5] <- "prediction_glmnet"
+#names(results)[8] <- "prediction_xgbTree"
+names(results)[6] <- "prediction_gbm"
 
 gbmImp <- varImp(model6_gbm, conditional=TRUE)
 gbmImp <- varImp(model6_gbm, scale = FALSE)
@@ -556,207 +562,678 @@ vImpGbm=varImp(model6_gbm)
 gbmImp
 plot(gbmImp, top = 32)
 
-#rm(accuracy1)
-#accuracy1 <- as.data.frame(cbind("rf",mae_test_rf,conf_matrm$`Balanced Accuracy`,conf_matrm$F1))
-#names(accuracy1) <- c("algorithm","mae","accuracy","F1")
-accuracy <- data.frame(c("rf2",mae_test_rf,conf_matrm$`Balanced Accuracy`,conf_matrm$F1),
-                       c("svm2",mae_test_svm,conf_matsvm$`Balanced Accuracy`,conf_matsvm$F1),
-                       c("glm2",mae_test_glm,conf_matglm$`Balanced Accuracy`,conf_matglm$F1),
-                       c("glmnet2",mae_test_glmnet,conf_matglmnet$`Balanced Accuracy`,conf_matglmnet$F1),  
-                       c("xgbtree2",mae_test_xgbTree,conf_matxbtree$`Balanced Accuracy`,conf_matxbtree$F1),  
-                       c("gbm2",mae_test_gbm,conf_matgbm$`Balanced Accuracy`,conf_matgbm$F1))
-accuracy <- data.frame(t(accuracy))
-names(accuracy) <- c("algorithm","mae","accuracy","F1")
 
-accuracy1 <- rbind(accuracy1,accuracy)
-accuracy1 <- accuracy1[1:6,]
-mae_test_rf
-mae_test_svm
-mae_test_glm
-mae_test_glmnet
-mae_test_xgbTree
-mae_test_gbm
+
 
 results <- results %>%
   mutate(score_rf =round(prediction_rf,0)) %>%
-  mutate(score_svm =round(prediction_svm,0)) %>%
-  mutate(score_glm =round(prediction_glm,0)) %>%
+  # mutate(score_svm =round(prediction_svm,0)) %>%
+  # mutate(score_glm =round(prediction_glm,0)) %>%
   mutate(score_glmnet =round(prediction_glmnet,0)) %>%
-  mutate(score_xgbTree =round(prediction_xgbTree,0)) %>%
+  #mutate(score_xgbTree =round(prediction_xgbTree,0)) %>%
   mutate(score_gbm =round(prediction_gbm,0))
 
 mae_test_rf <- mean(abs(results$score_rf-results$actual_final_score))
-mae_test_svm <- mean(abs(results$score_svm-results$actual_final_score))
-mae_test_glm <- mean(abs(results$score_glm-results$actual_final_score))
+# mae_test_svm <- mean(abs(results$score_svm-results$actual_final_score))
+# mae_test_glm <- mean(abs(results$score_glm-results$actual_final_score))
 mae_test_glmnet <- mean(abs(results$score_glmnet-results$actual_final_score))
-mae_test_xgbTree <- mean(abs(results$score_xgbTree-results$actual_final_score))
+#mae_test_xgbTree <- mean(abs(results$score_xgbTree-results$actual_final_score))
 mae_test_gbm <- mean(abs(results$score_gbm-results$actual_final_score))
 
 mae_test_rf
-mae_test_svm
-mae_test_glm
+# mae_test_svm
+# mae_test_glm
 mae_test_glmnet
-mae_test_xgbTree
+#mae_test_xgbTree
 mae_test_gbm
 
-gbmImp <- varImp(model2_svm, conditional=TRUE)
+gbmImp <- varImp(model6_gbm, conditional=TRUE)
+gbmImp <- varImp(model6_gbm, scale = FALSE)
+vImpGbm=varImp(model6_gbm)
 gbmImp
-plot(gbmImp, top = 32)
+plot(gbmImp, top = 10)
+
 
 ##------Training and predicting----####
 course1 <- tibble::rowid_to_column(course1, "row")
 set.seed(123)
 
 course1 <- course1 %>%
-  mutate(score_class = cut(as.numeric(course1$final_score), breaks=c(0,9.9,21), labels=c( 'pass', 'fail'))) %>%
+  mutate(score_class = cut(as.numeric(course1$final_score), breaks=c(0,9.9,21), labels=c( 'fail', 'pass')))
+
+
+course1 <- course1 %>%
   mutate(score_class = as.factor(course1$score_class))
 
-train1 <-sample_frac(course1, 0.8)
+#c1 <- course1[course1$cluster==2,]
+c1 <- course1[,]
+
+library(splitstackshape)
+train1 <- stratified(c1, c("score_class"), 0.8)
+
 sid<-train1$row
-test1 <- course1[-sid,]
+test1 <- c1[!(c1$row %in% sid),]
+
 
 train_course1 <- train1[,4:ncol(train1)]
 
 id_test1 <- test1[,1:2]
 test_course1 <- test1[,4:(ncol(test1)-1)]
-
+table(train_course1$score_class)
 
 ###-------------Classification------------###
 train.control <- trainControl(method="LOOCV",classProbs = TRUE)
 
-train.control <- trainControl(method = "repeatedcv",
-                              number = 10, repeats = 3,classProbs = TRUE)
+model_weights <- ifelse(train_course1$score_class == "fail",
+                        (1/table(train_course1$score_class)[1]) * 0.5,
+                        (1/table(train_course1$score_class)[2]) * 0.5)
+
+#train_course1$score_class <- as.factor(train_course1$score_class)
+#train.control <- trainControl(method = "repeatedcv",
+#                              number = 10, repeats = 3,classProbs = TRUE)
 
 model1_PR <- train(score_class ~ . , data = train_course1,
-                   method = "parRF", trControl = train.control,metric="ROC")
+                   method = "parRF",   weights = model_weights,
+                   trControl = train.control,metric="ROC")
 
-model2_svm <- train(score_class ~ . , data = train_course1,
-                    method = "svmLinear", trControl = train.control,metric="ROC")
+#model2_svm <- train(score_class ~ . , data = train_course1,
+#                    method = "svmLinear", trControl = train.control,metric="ROC")
 
-model3_glm <- train(score_class ~ . , data = train_course1,
-                    method = "glmStepAIC", trControl = train.control,metric="ROC",
-                    preProcess = c("zv", "center", "scale", "pca"))
+#model3_glm <- train(score_class ~ . , data = train_course1,
+#                    method = "glmStepAIC", trControl = train.control,metric="ROC",
+#                    preProcess = c("zv", "center", "scale", "pca"))
 
 model4_elasticnet <- train(score_class ~ . , data = train_course1,
-                           method = "glmnet", trControl = train.control,metric="ROC",
+                           method = "glmnet", weights = model_weights,
+                           trControl = train.control,metric="ROC",
                            preProcess = c())
 
-model5_xgbTree <- train(score_class ~ . , data = train_course1,
-                        method = "xgbTree", trControl = train.control,metric="ROC")
+#model5_xgbTree <- train(score_class ~ . , data = train_course1,
+#                       method = "xgbTree", trControl = train.control,metric="ROC")
 
 
 model6_gbm <- train(score_class ~ . , data = train_course1,
-                    method = "gbm", trControl = train.control,metric="ROC")
-
-model7 <- train(score_class ~ . , data = train_course1,
-                method = "adaboost", trControl = train.control,metric="ROC")
-model8 <- train(score_class ~ . , data = train_course1,
-                method = "AdaBoost.M1", trControl = train.control,metric="ROC")
-model9 <- train(score_class ~ . , data = train_course1,
-                method = "amdai", trControl = train.control,metric="ROC")
-model10 <- train(score_class ~ . , data = train_course1,
-                 method = "AdaBag", trControl = train.control,metric="ROC")
-model11 <- train(score_class ~ . , data = train_course1,
-                 method = "bagFDAGCV", trControl = train.control,metric="ROC")
-model12 <- train(score_class ~ . , data = train_course1,
-                 method = "bagFDA", trControl = train.control,metric="ROC")
-model13 <- train(score_class ~ . , data = train_course1,
-                 method = "LogitBoost", trControl = train.control,metric="ROC")
-
-model30 <- train(score_class ~ . , data = train_course1,
-                 method = "svmLinearWeights", trControl = train.control,metric="ROC")
-
-model33 <- train(score_class ~ . , data = train_course1,
-                 method = "manb", trControl = train.control,metric="ROC")
-model34 <- train(score_class ~ . , data = train_course1,
-                 method = "mlpKerasDropoutCost", trControl = train.control,metric="ROC")
-model35 <- train(score_class ~ . , data = train_course1,
-                 method = "naive_bayes", trControl = train.control,metric="ROC")
-model35
-
-model39 <- train(score_class ~ . , data = train_course1,
-                 method = "pda", trControl = train.control,metric="ROC")
-model40 <- train(score_class ~ . , data = train_course1,
-                 method = "stepQDA", trControl = train.control,metric="ROC")
-model41 <- train(score_class ~ . , data = train_course1,
-                 method = "QdaCov", trControl = train.control,metric="ROC")
-model42 <- train(score_class ~ . , data = train_course1,
-                 method = "sparseLDA", trControl = train.control,metric="ROC")
-model43 <- train(score_class ~ . , data = train_course1,
-                 method = "snn", trControl = train.control,metric="ROC")
-model44 <- train(score_class ~ . , data = train_course1,
-                 method = "awtan", trControl = train.control,metric="ROC")
-model45 <- train(score_class ~ . , data = train_course1,
-                 method = "vbmpRadial", trControl = train.control,metric="ROC")
-
-
-
+                    method = "gbm", weights = model_weights,
+                    trControl = train.control,metric="ROC")
 
 
 print(max(model1_PR$results$Accuracy))
-print(max(model2_svm$results$Accuracy))
-print(max(model3_glm$results$Accuracy))
 print(max(model4_elasticnet$results$Accuracy))
-print(max(model5_xgbTree$results$Accuracy))
 print(max(model6_gbm$results$Accuracy))
 
 
 pred1 <- data.frame(predict(model1_PR, test_course1, type = "raw"))
-pred2 <- data.frame(predict(model2_svm, test_course1, type = "raw"))
-pred3 <- data.frame(predict(model3_glm, test_course1, type = "raw"))
 pred4 <- data.frame(predict(model4_elasticnet, test_course1, type = "raw"))
-pred5 <- data.frame(predict(model5_xgbTree, test_course1, type = "raw"))
 pred6 <- data.frame(predict(model6_gbm, test_course1, type = "raw"))
 
+rm(results)
+results <- cbind(id_test1$user_pk,as.vector(test1$score_class))
 
 
-results <- cbind(id_test,test1$final_score,test1$score_class)
-names(results)[3] <- "actual_final_score"
-names(results)[4] <- "actual_class"
+results <- cbind(results,pred1,pred4,pred6)
+names(results)[2] <- "actual_class"
+names(results)[3] <- "prediction_rf"
+names(results)[4] <- "prediction_glmnet"
+names(results)[5] <- "prediction_gbm"
+
+#library (ROCR)
+
+confusionMatrix(results$prediction_rf, reference = as.factor(results$actual_class))
+confusionMatrix(results$prediction_glmnet, reference = as.factor(results$actual_class))
+confusionMatrix(results$prediction_gbm, reference = as.factor(results$actual_class))
+
+
+install.packages("pROC")
+library(pROC)
+# Select a parameter setting
+selectedIndices <- model1_PR$pred$mtry == 2
+# Plot:
+library(MLeval)
+res <- evalm(list(model1_PR,model4_elasticnet,model6_gbm),gnames=c('rf','Elasticnet','gbm'))
+
+
+plot.roc(model1_PR$pred$obs[selectedIndices],
+         model1_PR$pred$M[selectedIndices])
+install.packages("plotROC")
+library(plotROC)
+
+ggplot(model1_PR$pred[selectedIndices, ], 
+       aes(m = M, d = factor(obs, levels = c("R", "M")))) + 
+  geom_roc(hjust = -0.4, vjust = 1.5) + coord_equal()
+
+
+par(pty="s") lrROC <- roc(vdata_Y ~ LR_predict,plot=TRUE,print.auc=TRUE,col="green",lwd =4,legacy.axes=TRUE,main="ROC Curves")
+## Setting levels: control = 0, case = 1
+## Setting direction: controls < cases
+svmROC <- roc(vdata_Y ~ svm_predict,plot=TRUE,print.auc=TRUE,col="blue",lwd = 4,print.auc.y=0.4,legacy.axes=TRUE,add = TRUE)
+## Setting levels: control = 0, case = 1 ## Setting direction: controls < cases
+legend("bottomright",legend=c("Logistic Regression","SVM"),col=c("green","blue"),lwd=4)
 
 
 
-results <- cbind(results,pred1,pred2,pred3,pred4,pred5,pred6)
-names(results)[5] <- "prediction_rf"
-names(results)[6] <- "prediction_svm"
-names(results)[7] <- "prediction_glm"
-names(results)[8] <- "prediction_glmnet"
-names(results)[9] <- "prediction_xgbTree"
-names(results)[10] <- "prediction_gbm"
 
+library(gbm)          # basic implementation
+library(xgboost)      # a faster implementation of gbm
 
-conf_matrm <- confusion_matrix(targets = results$actual_class,
-                               predictions = results$prediction_rf)
-conf_matsvm <- confusion_matrix(targets = results$actual_class,
-                                predictions = results$prediction_svm)
-conf_matglm <- confusion_matrix(targets = results$actual_class,
-                                predictions = results$prediction_glm)
-conf_matglmnet <- confusion_matrix(targets = results$actual_class,
-                                   predictions = results$prediction_glmnet)
-conf_matxbtree <- confusion_matrix(targets = results$actual_class,
-                                   predictions = results$prediction_xgbTree)
-conf_matgbm <- confusion_matrix(targets = results$actual_class,
-                                predictions = results$prediction_gbm)
-
-conf_matrm
-conf_matsvm
-conf_matglm
-conf_matglmnet
-conf_matxbtree
-conf_matgbm
-
-#rm(accuracy1)
-#accuracy1 <- as.data.frame(cbind("rf",mae_test_rf,conf_matrm$`Balanced Accuracy`,conf_matrm$F1))
-#names(accuracy1) <- c("algorithm","mae","accuracy","F1")
-accuracy <- data.frame(c("rf2",conf_matrm$`Balanced Accuracy`,conf_matrm$F1),
-                       c("svm2",conf_matsvm$`Balanced Accuracy`,conf_matsvm$F1),
-                       c("glm2",conf_matglm$`Balanced Accuracy`,conf_matglm$F1),
-                       c("glmnet2",conf_matglmnet$`Balanced Accuracy`,conf_matglmnet$F1),  
-                       c("xgbtree2",conf_matxbtree$`Balanced Accuracy`,conf_matxbtree$F1),  
-                       c("gbm2",conf_matgbm$`Balanced Accuracy`,conf_matgbm$F1))
-accuracy <- data.frame(t(accuracy))
-names(accuracy) <- c("algorithm","accuracy","F1")
-
-gbmImp <- varImp(model5_xgbTree, conditional=TRUE)
+gbmImp <- varImp(model1_PR, conditional=TRUE)
 gbmImp
 plot(gbmImp, top = 32)
+
+
+
+
+
+#########-------------final model-------------####
+library(doParallel)		# parallel processing
+library(gbm)				  # GBM Models
+library(pROC)				  # plot the ROC curve
+library(xgboost)      # Extreme Gradient Boosting
+
+##------Training and predicting----####
+course1 <- tibble::rowid_to_column(course1, "row")
+set.seed(123)
+
+course1 <- course1 %>%
+  mutate(score_class = cut(as.numeric(course1$final_score), breaks=c(0,9.9,21), labels=c( 'fail', 'pass')))
+
+
+course1 <- course1 %>%
+  mutate(score_class = as.factor(course1$score_class))
+
+#c1 <- course1[course1$cluster==2,]
+c1 <- course1[,]
+
+library(splitstackshape)
+train1 <- stratified(c1, c("score_class"), 0.8)
+
+sid<-train1$row
+test1 <- c1[!(c1$row %in% sid),]
+
+
+train_course1 <- train1[,4:ncol(train1)]
+
+id_test1 <- test1[,1:2]
+test_course1 <- test1[,4:(ncol(test1)-1)]
+table(train_course1$score_class)
+
+library(doParallel)		# parallel processing
+library(gbm)				  # GBM Models
+library(pROC)				  # plot the ROC curve
+library(xgboost)      # Extreme Gradient Boosting
+
+###-------------Classification------------###
+#train.control <- trainControl(method="LOOCV",classProbs = TRUE)
+
+model_weights <- ifelse(train_course1$score_class == "fail",
+                        (1/table(train_course1$score_class)[1]) * 0.5,
+                        (1/table(train_course1$score_class)[2]) * 0.5)
+
+## GENERALIZED BOOSTED RGRESSION MODEL (BGM)  
+
+# Set up training control
+ctrl <- trainControl(method = "repeatedcv",   # 10fold cross validation
+                     number = 20,							# do 5 repititions of cv
+                     summaryFunction=twoClassSummary,	# Use AUC to pick the best model
+                     classProbs=TRUE,
+                     allowParallel = TRUE)
+
+# Use the expand.grid to specify the search space	
+# Note that the default search grid selects multiple values of each tuning parameter
+
+grid <- expand.grid(interaction.depth=c(1,2), # Depth of variable interactions
+                    n.trees=c(10,20,50),	        # Num trees to fit
+                    shrinkage=c(0.01,0.1),		# Try 2 values for learning rate 
+                    n.minobsinnode = 20)
+#											
+set.seed(123)  # set the seed
+
+# Set up to do parallel processing   
+registerDoParallel(4)		# Registrer a parallel backend for train
+getDoParWorkers()
+
+gbm.tune1 <- train(score_class ~ ., data = train_course1,
+                  method = "gbm",
+                  metric = "ROC",
+                  trControl = ctrl,
+                  tuneGrid=grid,
+                  verbose=FALSE,
+                  weights = model_weights)
+
+# Look at the tuning results
+# Note that ROC was the performance criterion used to select the optimal model.   
+
+gbm.tune1$bestTune
+plot(gbm.tune1) 
+
+grid1 = gbm.tune1$bestTune
+getDoParWorkers()
+
+ctrl <- trainControl(method = "LOOCV",   # 10fold cross validation
+                     number = 5,							# do 5 repititions of cv
+                     summaryFunction=twoClassSummary,	# Use AUC to pick the best model
+                     classProbs=TRUE,
+                     allowParallel = TRUE)
+
+
+gbm.tune <- train(score_class ~ ., data = train_course1,
+                   method = "gbm",
+                   metric = "ROC",
+                   trControl = ctrl,
+                   tuneGrid=grid1,
+                   verbose=FALSE,
+                   weights = model_weights)
+
+
+
+# Plot the performance of the training models
+res <- gbm.tune$results
+res
+
+### GBM Model Predictions and Performance
+# Make predictions using the test data set
+gbm.pred <- predict(gbm.tune,test_course1)
+
+#Look at the confusion matrix  
+confusionMatrix(gbm.pred,test1$score_class)   
+
+#Draw the ROC curve 
+gbm.probs <- predict(gbm.tune,test_course1,type="prob")
+head(gbm.probs)
+
+gbm.ROC <- roc(predictor=gbm.probs$fail,
+               response=test1$score_class,
+               levels=rev(levels(test1$score_class)),direction = "<")
+gbm.ROC$auc
+#Area under the curve: 0.5624
+plot(gbm.ROC,main="GBM ROC")
+
+##----------------------------------------------
+## XGBOOST
+# Some stackexchange guidance for xgboost
+# http://stats.stackexchange.com/questions/171043/how-to-tune-hyperparameters-of-xgboost-trees
+
+# Set up for parallel procerssing
+set.seed(123)
+registerDoParallel(4,cores=4)
+getDoParWorkers()
+
+xgb_grid_1 = expand.grid(
+             nrounds = 1000,
+             eta = c(0.01,0.1, 0.001, 0.0001),
+             max_depth = c(2, 4, 6, 8, 10),
+             gamma =c(0.4,0.5,0.6,0.7,0.8,0,9,1)
+)
+# pack the training control parameters
+xgb_trcontrol_1 = trainControl(
+  method = "cv",
+  verboseIter = TRUE,
+  returnData = FALSE,
+  returnResamp = "all",                                                        # save losses across all models
+  classProbs = TRUE,                                                           # set to TRUE for AUC to be computed
+  summaryFunction = twoClassSummary,
+  allowParallel = TRUE
+)
+
+getDoParWorkers()
+xgb.tune <-train(score_class ~ ., data = as.data.frame(train_course1),
+                 method="xgbTree",
+                 metric="ROC",
+                 trControl=xgb_trcontrol_1,
+                 grid = xgb_grid_1,
+                 weights = model_weights)
+
+
+xgb.tune$bestTune
+plot(xgb.tune)  		# Plot the performance of the training models
+
+xgb_grid_1 = xgb.tune$bestTune
+xgb_trcontrol_1 = trainControl(
+  method = "LOOCV",
+  verboseIter = TRUE,
+  returnData = FALSE,
+  returnResamp = "all",                                                        # save losses across all models
+  classProbs = TRUE,                                                           # set to TRUE for AUC to be computed
+  summaryFunction = twoClassSummary,
+  allowParallel = TRUE
+)
+
+
+xgb.tune <-train(score_class ~ ., data = as.data.frame(train_course1),
+                 method="xgbTree",
+                 metric="ROC",
+                 trControl=xgb_trcontrol_1,
+                 grid = xgb_grid_1)
+
+
+res <- xgb.tune$results
+res
+
+### xgboostModel Predictions and Performance
+# Make predictions using the test data set
+xgb.pred <- predict(xgb.tune,test1)
+
+#Look at the confusion matrix  
+confusionMatrix(xgb.pred,test1$score_class)   
+
+#Draw the ROC curve 
+xgb.probs <- predict(xgb.tune,test1,type="prob")
+#head(xgb.probs)
+
+xgb.ROC <- roc(predictor=xgb.probs$pass,
+               response=test1$score_class,
+               levels=rev(levels(test1$score_class)),
+               direction= ">")
+xgb.ROC$auc
+# Area under the curve: 0.8857
+
+plot(xgb.ROC,main="xgboost ROC")
+
+
+####----------Random Forest----------#####
+
+registerDoParallel(4,cores=4)
+getDoParWorkers()
+
+rf_trcontrol_1 = trainControl(
+  method = "LOOCV",
+  verboseIter = TRUE,
+  returnData = FALSE,
+  returnResamp = "all",                                                        # save losses across all models
+  classProbs = TRUE,                                                           # set to TRUE for AUC to be computed
+  summaryFunction = twoClassSummary,
+  allowParallel = TRUE
+)
+
+
+rf.tune1 <-train(score_class ~ ., data = train_course1,
+                 method="ranger",
+                 trControl=rf_trcontrol_1,
+                 weights = model_weights)
+
+plot(rf.tune1)  		# Plot the performance of the training models
+
+rf.tune1$bestTune
+res <- rf.tune1$results
+res
+
+### xgboostModel Predictions and Performance
+# Make predictions using the test data set
+rf.pred <- predict(rf.tune1,test1)
+
+#Look at the confusion matrix  
+confusionMatrix(rf.pred,test1$score_class)   
+
+#Draw the ROC curve 
+rf.probs <- predict(rf.tune,test1,type="prob")
+#head(xgb.probs)
+
+rf.ROC <- roc(predictor=rf.probs$pass,
+               response=test1$score_class,
+               levels=rev(levels(test1$score_class)),
+               direction= ">")
+rf.ROC$auc
+# Area under the curve: 0.8857
+
+plot(rf.ROC,main="RandomForest ROC")
+
+####---------glm---------####
+caretGA$fitness_extern <- twoClassSummary
+gafs.ctrl = gafsControl(functions = caretGA, method = "boot", number = 10,
+                        metric = c(internal = "ROC", external = "ROC"),
+                        maximize = c(internal = TRUE, external = TRUE),
+                        holdout = .2,
+                        allowParallel = TRUE, genParallel = TRUE, verbose = TRUE)
+
+cls.ctrl <- trainControl(method = "repeatedcv", #boot, cv, LOOCV, timeslice OR adaptive etc.
+                         number = 10, repeats = 5,
+                         classProbs = TRUE, summaryFunction = twoClassSummary,
+                         savePredictions = "final", allowParallel = TRUE)
+
+set.seed(123)
+ga <- gafs(y= train_course1$score_class ,x=train_course1[,1:(length(train_course1)-1)], 
+           iters = 5, popSize = 2, elite = 0,
+           differences = TRUE, method = "glm", family = "binomial", metric = "ROC",
+           trControl = cls.ctrl,
+           gafsControl = gafs.ctrl)
+
+glm_trcontrol_1 = trainControl(
+  method = "LOOCV",
+  verboseIter = TRUE,
+  returnData = FALSE,
+  returnResamp = "all",                                                        # save losses across all models
+  classProbs = TRUE,                                                           # set to TRUE for AUC to be computed
+  summaryFunction = twoClassSummary,
+  allowParallel = TRUE
+)
+
+glmnet.fit <- train(score_class ~ ., data = as.data.frame(train_course1),
+                    method="glmnet",
+                    metric="ROC",
+                    trControl=glm_trcontrol_1,
+                    weights=model_weights)
+
+plot(glmnet.fit)
+glmnet.fit$bestTune
+
+res <- glmnet.fit$results
+res
+
+### xgboostModel Predictions and Performance
+# Make predictions using the test data set
+glm.pred <- predict(glmnet.fit,test1)
+
+#Look at the confusion matrix  
+confusionMatrix(glm.pred,test1$score_class)   
+
+#Draw the ROC curve 
+glm.probs <- predict(glmnet.fit,test1,type="prob")
+#head(xgb.probs)
+
+par(pty="s")
+plot(glm.ROC,main="ROC Curves for prediction of student success in the course: Marketing",)
+
+glm.ROC <- roc(predictor=xgb.probs$fail,
+               response=test1$score_class,
+               levels=rev(levels(test1$score_class)),
+               direction= "<",
+               plot=TRUE,print.auc=TRUE,col="blue",lwd = 4,print.auc.y=0.4,legacy.axes=TRUE,add = TRUE)
+
+rf.ROC <- roc(predictor=rf.probs$fail,
+              response=test1$score_class,
+              levels=rev(levels(test1$score_class)),
+              direction= "<",
+              plot=TRUE,print.auc=TRUE,col="red",lwd = 4,print.auc.y=0.35,legacy.axes=TRUE,add = TRUE)
+
+gbm.ROC <- roc(predictor=gbm.probs$fail,
+               response=test1$score_class,
+               levels=rev(levels(test1$score_class)),direction = "<",
+               plot=TRUE,print.auc=TRUE,col="green",lwd = 4,print.auc.y=0.3,legacy.axes=TRUE,add = TRUE)
+
+glm.ROC$auc
+# Area under the curve: 0.8857
+
+legend("bottomright",legend=c("glm","random forest","gbm"),col=c("blue","red","green"),lwd=4)
+
+
+
+##------Training and predicting over test grades----####
+course1 <- tibble::rowid_to_column(course1, "row")
+set.seed(123)
+
+course1 <- course1 %>%
+  mutate(score_class = cut(as.numeric(course1$final_score), breaks=c(0,9.9,21), labels=c( 'fail', 'pass')))
+
+
+course1 <- course1 %>%
+  mutate(score_class = as.factor(course1$score_class))
+
+#c1 <- course1[course1$cluster==2,]
+c1 <- course1[,]
+
+library(splitstackshape)
+train1 <- stratified(c1, c("score_class"), 0.8)
+
+sid<-train1$row
+test1 <- c1[!(c1$row %in% sid),]
+
+scores <- train1[,77]
+
+train_course1 <- train1[,60:75]
+train_course1 <- bind_cols(train_course1, scores)
+
+id_test1 <- test1[,1:2]
+test_course1 <- test1[,60:75]
+table(train_course1$score_class)
+
+###-------------Classification------------###
+library(doParallel)		# parallel processing
+library(gbm)				  # GBM Models
+library(pROC)				  # plot the ROC curve
+library(xgboost)      # Extreme Gradient Boosting
+
+###-------------Classification------------###
+
+glm_trcontrol_1 = trainControl(
+  method = "LOOCV",
+  verboseIter = TRUE,
+  returnData = FALSE,
+  returnResamp = "all",                                                        # save losses across all models
+  classProbs = TRUE,                                                           # set to TRUE for AUC to be computed
+  summaryFunction = twoClassSummary,
+  allowParallel = TRUE
+)
+
+glmnet.fit <- train(score_class ~ ., data = as.data.frame(train_course1),
+                    method="glmnet",
+                    metric="ROC",
+                    trControl=glm_trcontrol_1,
+                    weights=model_weights)
+
+plot(glmnet.fit)
+glmnet.fit$bestTune
+
+res <- glmnet.fit$results
+res
+
+### xgboostModel Predictions and Performance
+# Make predictions using the test data set
+glm.pred <- predict(glmnet.fit,test1)
+
+#Look at the confusion matrix  
+confusionMatrix(glm.pred,test1$score_class)   
+
+#Draw the ROC curve 
+videos.probs <- predict(glmnet.fit,test1,type="prob")
+#head(xgb.probs)
+
+
+
+gbm.videos <- roc(predictor=videos.probs$fail,
+               response=test1$score_class,
+               levels=rev(levels(test1$score_class)),direction = "<")
+gbm.videos$auc
+#Area under the curve: 0.5624
+plot(gbm.videos,main="GBM ROC")
+
+
+
+##------Training and predicting over activity in weeks----####
+course1 <- tibble::rowid_to_column(course1, "row")
+set.seed(123)
+
+course1 <- course1 %>%
+  mutate(score_class = cut(as.numeric(course1$final_score), breaks=c(0,9.9,21), labels=c( 'fail', 'pass')))
+
+
+course1 <- course1 %>%
+  mutate(score_class = as.factor(course1$score_class))
+
+#c1 <- course1[course1$cluster==2,]
+c1 <- course1[,]
+
+library(splitstackshape)
+train1 <- stratified(c1, c("score_class"), 0.8)
+
+sid<-train1$row
+test1 <- c1[!(c1$row %in% sid),]
+
+scores <- train1[,77]
+
+train_course1 <- train1[,5:59]
+train_course1 <- bind_cols(train_course1, scores)
+
+id_test1 <- test1[,1:2]
+test_course1 <- test1[,5:59]
+table(train_course1$score_class)
+
+###-------------Classification------------###
+#train.control <- trainControl(method="LOOCV",classProbs = TRUE)
+
+model_weights <- ifelse(train_course1$score_class == "fail",
+                        (1/table(train_course1$score_class)[1]) * 0.5,
+                        (1/table(train_course1$score_class)[2]) * 0.5)
+
+
+glm_trcontrol_1 = trainControl(
+  method = "LOOCV",
+  verboseIter = TRUE,
+  returnData = FALSE,
+  returnResamp = "all",                                                        # save losses across all models
+  classProbs = TRUE,                                                           # set to TRUE for AUC to be computed
+  summaryFunction = twoClassSummary,
+  allowParallel = TRUE
+)
+
+glmnet.fit <- train(score_class ~ ., data = as.data.frame(train_course1),
+                    method="glmnet",
+                    metric="ROC",
+                    trControl=glm_trcontrol_1,
+                    weights=model_weights)
+
+plot(glmnet.fit)
+glmnet.fit$bestTune
+
+res <- glmnet.fit$results
+res
+
+### xgboostModel Predictions and Performance
+# Make predictions using the test data set
+glm.pred <- predict(glmnet.fit,test1)
+
+#Look at the confusion matrix  
+confusionMatrix(glm.pred,test1$score_class)   
+
+#Draw the ROC curve 
+weeks.probs <- predict(glmnet.fit,test_course1,type="prob")
+head(gbm.probs)
+
+gbm.weeks <- roc(predictor=weeks.probs$fail,
+                  response=test1$score_class,
+                  levels=rev(levels(test1$score_class)),direction = "<")
+gbm.weeks$auc
+#Area under the curve: 0.5624
+plot(gbm.weeks,main="GBM ROC")
+
+
+
+
+
+
+par(pty="s")
+plot(gbm.videos,main="ROC curves based on different feature sets for the course: Marketing")
+
+
+
+gbm.videos <- roc(predictor=videos.probs$fail,
+                  response=test1$score_class,
+                  levels=rev(levels(test1$score_class)),
+                  direction= "<",
+                  plot=TRUE,print.auc=TRUE,col="red",lwd = 4,print.auc.y=0.35,legacy.axes=TRUE,add = TRUE)
+
+gbm.weeks <- roc(predictor=weeks.probs$fail,
+                 response=test1$score_class,
+                 levels=rev(levels(test1$score_class)),direction = "<",
+                 plot=TRUE,print.auc=TRUE,col="green",lwd = 4,print.auc.y=0.3,legacy.axes=TRUE,add = TRUE)
+
+
+legend("bottomright",legend=c("feature set: number of times videos opened","feature set: student activities in each week"),col=c("red","green"),lwd = 4)

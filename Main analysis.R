@@ -11,7 +11,7 @@ library(doParallel)
 registerDoParallel(cores=4)
 library(cluster)
 library(factoextra)
-
+library(pROC)
 #--------Load Data-------------------------------------------
 events <- read.csv("c:/ALCAPAS/Anon_events.dsv",
                       sep="\t", quote = "",na.strings = c("", "NA"))
@@ -602,10 +602,6 @@ fviz_nbclust(df1, kmeans, method = "wss")
 
 fviz_nbclust(df1, kmeans, method = "silhouette")
 
-gap_stat <- clusGap(df1, FUN = kmeans, nstart = 25,
-                    K.max = 20, B = 50)
-
-fviz_gap_stat(gap_stat)
 
 
 set.seed(123)
@@ -637,10 +633,10 @@ test_course1 <- test1[,4:ncol(test1)]
 
 ##------Training and predicting----####
 
-train.control <- trainControl(method="LOOCV")
+#train.control <- trainControl(method="LOOCV")
 
-#train.control <- trainControl(method = "repeatedcv",
-#                              number = 10, repeats = 3)
+train.control <- trainControl(method = "repeatedcv",
+                              number = 10, repeats = 3)
 
 
 model1_PR <- train(final_score ~ . , data = train_course1,
@@ -904,3 +900,251 @@ library(xgboost)      # a faster implementation of gbm
 gbmImp <- varImp(model1_PR, conditional=TRUE)
 gbmImp
 plot(gbmImp, top = 32)
+
+
+##------Training and predicting----####
+course1 <- tibble::rowid_to_column(course1, "row")
+set.seed(123)
+
+course1 <- course1 %>%
+  mutate(score_class = cut(as.numeric(course1$final_score), breaks=c(0,9.9,21), labels=c( 'fail', 'pass')))
+  
+course1 <- course1 %>%
+  mutate(score_class = as.factor(course1$score_class))
+#c1 <- course1[course1$cluster==2,]
+c1 <- course1[,]
+
+library(splitstackshape)
+train1 <- stratified(c1, c("score_class"), 0.8)
+
+sid<-train1$row
+test1 <- c1[!(c1$row %in% sid),]
+
+mean(course1$final_score)
+sd(course1$final_score)
+train_course1 <- train1[,4:ncol(train1)]
+
+id_test1 <- test1[,1:2]
+test_course1 <- test1[,4:(ncol(test1)-1)]
+table(train_course1$score_class)
+table(course1$score_class)
+cour
+###-------------Classification------------###
+#train.control <- trainControl(method="LOOCV",classProbs = TRUE)
+
+model_weights <- ifelse(train_course1$score_class == "fail",
+                        (1/table(train_course1$score_class)[1]) * 0.5,
+                        (1/table(train_course1$score_class)[2]) * 0.5)
+
+## GENERALIZED BOOSTED RGRESSION MODEL (BGM)  
+
+# Set up training control
+ctrl <- trainControl(method = "repeatedcv",   # 10fold cross validation
+                     number = 20,							# do 5 repititions of cv
+                     summaryFunction=twoClassSummary,	# Use AUC to pick the best model
+                     classProbs=TRUE,
+                     allowParallel = TRUE)
+
+# Use the expand.grid to specify the search space	
+# Note that the default search grid selects multiple values of each tuning parameter
+
+grid <- expand.grid(interaction.depth=c(1,2), # Depth of variable interactions
+                    n.trees=c(10,20,50),	        # Num trees to fit
+                    shrinkage=c(0.01,0.1),		# Try 2 values for learning rate 
+                    n.minobsinnode = 20)
+#											
+set.seed(123)  # set the seed
+
+# Set up to do parallel processing   
+registerDoParallel(4)		# Registrer a parallel backend for train
+getDoParWorkers()
+
+gbm.tune1 <- train(score_class ~ ., data = train_course1,
+                   method = "gbm",
+                   metric = "ROC",
+                   trControl = ctrl,
+                   tuneGrid=grid,
+                   verbose=FALSE,
+                   weights = model_weights)
+
+# Look at the tuning results
+# Note that ROC was the performance criterion used to select the optimal model.   
+
+gbm.tune1$bestTune
+plot(gbm.tune1) 
+
+grid1 = gbm.tune1$bestTune
+getDoParWorkers()
+
+ctrl <- trainControl(method = "LOOCV",   # 10fold cross validation
+                     number = 5,							# do 5 repititions of cv
+                     summaryFunction=twoClassSummary,	# Use AUC to pick the best model
+                     classProbs=TRUE,
+                     allowParallel = TRUE)
+
+
+gbm.tune <- train(score_class ~ ., data = train_course1,
+                  method = "gbm",
+                  metric = "ROC",
+                  trControl = ctrl,
+                  tuneGrid=grid1,
+                  verbose=FALSE,
+                  weights = model_weights)
+
+
+
+# Plot the performance of the training models
+res <- gbm.tune$results
+res
+
+### GBM Model Predictions and Performance
+# Make predictions using the test data set
+gbm.pred <- predict(gbm.tune,test_course1)
+
+#Look at the confusion matrix  
+confusionMatrix(gbm.pred,test1$score_class)   
+
+#Draw the ROC curve 
+gbm.probs <- predict(gbm.tune,test_course1,type="prob")
+head(gbm.probs)
+
+gbm.ROC <- roc(predictor=gbm.probs$fail,
+               response=test1$score_class,
+               levels=rev(levels(test1$score_class)),direction = "<")
+gbm.ROC$auc
+#Area under the curve: 0.5624
+plot(gbm.ROC,main="GBM ROC")
+
+
+####----------Random Forest----------#####
+n_event = 
+#registerDoParallel(4,cores=4)
+getDoParWorkers()
+
+rf_trcontrol_1 = trainControl(
+  method = "LOOCV",
+  verboseIter = TRUE,
+  returnData = FALSE,
+  returnResamp = "all",                                                        # save losses across all models
+  classProbs = TRUE,                                                           # set to TRUE for AUC to be computed
+  summaryFunction = twoClassSummary,
+  allowParallel = TRUE
+)
+
+
+rf.tune1 <-train(score_class ~ ., data = train_course1,
+                 method="ranger",
+                 trControl=rf_trcontrol_1,
+                 weights = model_weights)
+
+plot(rf.tune1)  		# Plot the performance of the training models
+
+rf.tune1$bestTune
+res <- rf.tune1$results
+res
+
+### xgboostModel Predictions and Performance
+# Make predictions using the test data set
+rf.pred <- predict(rf.tune1,test_course1)
+
+#Look at the confusion matrix  
+confusionMatrix(rf.pred,test1$score_class)   
+
+#Draw the ROC curve 
+rf.probs <- predict(rf.tune1,test_course1,type="prob")
+#head(xgb.probs)
+
+rf.ROC <- roc(predictor=rf.probs$pass,
+              response=test1$score_class,
+              levels=rev(levels(test1$score_class)),
+              direction= ">")
+rf.ROC$auc
+# Area under the curve: 0.8857
+
+plot(rf.ROC,main="RandomForest ROC")
+
+####---------glm---------####
+caretGA$fitness_extern <- twoClassSummary
+gafs.ctrl = gafsControl(functions = caretGA, method = "boot", number = 10,
+                        metric = c(internal = "ROC", external = "ROC"),
+                        maximize = c(internal = TRUE, external = TRUE),
+                        holdout = .2,
+                        allowParallel = TRUE, genParallel = TRUE, verbose = TRUE)
+
+cls.ctrl <- trainControl(method = "repeatedcv", #boot, cv, LOOCV, timeslice OR adaptive etc.
+                         number = 10, repeats = 5,
+                         classProbs = TRUE, summaryFunction = twoClassSummary,
+                         savePredictions = "final", allowParallel = TRUE)
+
+set.seed(123)
+ga <- gafs(y= train_course1$score_class ,x=train_course1[,1:(length(train_course1)-1)], 
+           iters = 5, popSize = 2, elite = 0,
+           differences = TRUE, method = "glm", family = "binomial", metric = "ROC",
+           trControl = cls.ctrl,
+           gafsControl = gafs.ctrl)
+
+glm_trcontrol_1 = trainControl(
+  method = "LOOCV",
+  verboseIter = TRUE,
+  returnData = FALSE,
+  returnResamp = "all",                                                        # save losses across all models
+  classProbs = TRUE,                                                           # set to TRUE for AUC to be computed
+  summaryFunction = twoClassSummary,
+  allowParallel = TRUE
+)
+
+glmnet.fit <- train(score_class ~ ., data = as.data.frame(train_course1),
+                    method="glmnet",
+                    metric="ROC",
+                    trControl=glm_trcontrol_1,
+                    weights=model_weights)
+
+plot(glmnet.fit)
+glmnet.fit$bestTune
+
+res <- glmnet.fit$results
+res
+
+### xgboostModel Predictions and Performance
+# Make predictions using the test data set
+glm.pred <- predict(glmnet.fit,test1)
+
+#Look at the confusion matrix  
+confusionMatrix(glm.pred,test1$score_class)   
+
+#Draw the ROC curve 
+glm.probs <- predict(glmnet.fit,test1,type="prob")
+#head(xgb.probs)
+
+par(pty="s")
+plot(glm.ROC,main="ROC Curves for prediction of student success in the course: Bank en financien")
+
+glm.ROC <- roc(predictor=glm.probs$fail,
+               response=test1$score_class,
+               levels=rev(levels(test1$score_class)),
+               direction= "<",
+               plot=TRUE,print.auc=TRUE,col="blue",lwd = 4,print.auc.y=0.4,legacy.axes=TRUE,add = TRUE)
+
+rf.ROC <- roc(predictor=rf.probs$fail,
+              response=test1$score_class,
+              levels=rev(levels(test1$score_class)),
+              direction= "<",
+              plot=TRUE,print.auc=TRUE,col="red",lwd = 4,print.auc.y=0.35,legacy.axes=TRUE,add = TRUE)
+
+gbm.ROC <- roc(predictor=gbm.probs$fail,
+               response=test1$score_class,
+               levels=rev(levels(test1$score_class)),direction = "<",
+               plot=TRUE,print.auc=TRUE,col="green",lwd = 4,print.auc.y=0.3,legacy.axes=TRUE,add = TRUE)
+
+glm.ROC$auc
+# Area under the curve: 0.8857
+
+legend("bottomright",legend=c("glm","random forest","gbm"),col=c("blue","red","green"),lwd=4)
+
+
+library(gbm)
+gbmImp <- varImp(gbm.tune, conditional=TRUE)
+gbmImp
+plot(gbmImp, top =10)
+
+
