@@ -1,4 +1,4 @@
-plot(roc_week3,main="ROC curves in diffrent weeks: bank en finacien")
+plot(roc_week3,main="ROC curves in different weeks: bank en finacien")
 
 roc(predictor=week3_prob$fail,
     response=test3$score_class,
