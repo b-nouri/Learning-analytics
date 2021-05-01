@@ -337,6 +337,9 @@ event_course <- event_df %>%
   group_by(user_pk,course_pk) %>%
   dplyr::summarise(n_event_course = n())
 
+
+event_selected_course <- event_df[event_df$course_pk == 888132,]
+event_test_selected_course <- event_selected_course[event_selected_course$content_type == "resource/x-bb-asmt-test-link",]
 #-----Preparing data for selected courses----###
 #Selected program: ABA toegepaste economische wetenschappen (Leuv) 
 #selected courses: accountancy (TEW) - 888130, 
@@ -616,6 +619,7 @@ fviz_cluster(final2, data = df1)
 course1 <- course1 %>%
   mutate(cluster = final1$cluster)
 
+course <- course1
 ###---Train Test Split----###
 #course1 <- subset(course1, select=-c(n_event_course))
 set.seed(123)
@@ -1147,4 +1151,1299 @@ gbmImp <- varImp(gbm.tune, conditional=TRUE)
 gbmImp
 plot(gbmImp, top =10)
 
+
+
+
+##------Training and predicting over test grades----####
+course1 <- tibble::rowid_to_column(course1, "row")
+set.seed(123)
+
+course1 <- course1 %>%
+  mutate(score_class = cut(as.numeric(course1$final_score), breaks=c(0,9.9,21), labels=c( 'fail', 'pass')))
+
+
+course1 <- course1 %>%
+  mutate(score_class = as.factor(course1$score_class))
+
+#c1 <- course1[course1$cluster==2,]
+c1 <- course1[,]
+
+library(splitstackshape)
+train1 <- stratified(c1, c("score_class"), 0.8)
+
+sid<-train1$row
+test1 <- c1[!(c1$row %in% sid),]
+
+scores <- train1[,138]
+
+train_course1 <- train1[,4:64]
+train_course1 <- bind_cols(train_course1, scores)
+
+id_test1 <- test1[,1:2]
+test_course1 <- test1[,4:64]
+table(train_course1$score_class)
+
+###-------------Classification------------###
+train.control <- trainControl(method="LOOCV",classProbs = TRUE)
+
+model_weights <- ifelse(train_course1$score_class == "fail",
+                        (1/table(train_course1$score_class)[1]) * 0.5,
+                        (1/table(train_course1$score_class)[2]) * 0.5)
+
+## GENERALIZED BOOSTED RGRESSION MODEL (BGM)  
+
+# Set up training control
+ctrl <- trainControl(method = "repeatedcv",   # 10fold cross validation
+                     number = 20,							# do 5 repititions of cv
+                     summaryFunction=twoClassSummary,	# Use AUC to pick the best model
+                     classProbs=TRUE,
+                     allowParallel = TRUE)
+
+# Use the expand.grid to specify the search space	
+# Note that the default search grid selects multiple values of each tuning parameter
+
+grid <- expand.grid(interaction.depth=c(1,2), # Depth of variable interactions
+                    n.trees=c(10,20,50),	        # Num trees to fit
+                    shrinkage=c(0.01,0.1),		# Try 2 values for learning rate 
+                    n.minobsinnode = 20)
+#											
+set.seed(123)  # set the seed
+
+# Set up to do parallel processing   
+registerDoParallel(4)		# Registrer a parallel backend for train
+getDoParWorkers()
+
+gbm.tune1 <- train(score_class ~ ., data = train_course1,
+                   method = "gbm",
+                   metric = "ROC",
+                   trControl = ctrl,
+                   tuneGrid=grid,
+                   verbose=FALSE,
+                   weights = model_weights)
+
+# Look at the tuning results
+# Note that ROC was the performance criterion used to select the optimal model.   
+
+gbm.tune1$bestTune
+plot(gbm.tune1) 
+
+grid1 = gbm.tune1$bestTune
+getDoParWorkers()
+
+ctrl <- trainControl(method = "LOOCV",   # 10fold cross validation
+                     number = 5,							# do 5 repititions of cv
+                     summaryFunction=twoClassSummary,	# Use AUC to pick the best model
+                     classProbs=TRUE,
+                     allowParallel = TRUE)
+
+
+gbm.tune <- train(score_class ~ ., data = train_course1,
+                  method = "gbm",
+                  metric = "ROC",
+                  trControl = ctrl,
+                  tuneGrid=grid1,
+                  verbose=FALSE,
+                  weights = model_weights)
+
+
+
+# Plot the performance of the training models
+res <- gbm.tune$results
+res
+
+### GBM Model Predictions and Performance
+# Make predictions using the test data set
+gbm.pred <- predict(gbm.tune,test_course1)
+
+#Look at the confusion matrix  
+confusionMatrix(gbm.pred,test1$score_class)   
+
+#Draw the ROC curve 
+test_grades.probs <- predict(gbm.tune,test_course1,type="prob")
+head(test_grades.probs)
+
+roc.test_grades <- roc(predictor=test_grades.probs$fail,
+                       response=test1$score_class,
+                       levels=rev(levels(test1$score_class)))
+roc.test_grades$auc
+#Area under the curve: 0.5624
+plot(roc.test_grades,main="GBM ROC")
+
+
+
+##------Training and predicting over activity in weeks----####
+course1 <- tibble::rowid_to_column(course1, "row")
+set.seed(123)
+
+course1 <- course1 %>%
+  mutate(score_class = cut(as.numeric(course1$final_score), breaks=c(0,9.9,21), labels=c( 'fail', 'pass')))
+
+
+course1 <- course1 %>%
+  mutate(score_class = as.factor(course1$score_class))
+
+#c1 <- course1[course1$cluster==2,]
+c1 <- course1[,]
+
+library(splitstackshape)
+train1 <- stratified(c1, c("score_class"), 0.8)
+
+sid<-train1$row
+test1 <- c1[!(c1$row %in% sid),]
+
+scores <- train1[,138]
+
+train_course1 <- train1[,65:117]
+train_course1 <- bind_cols(train_course1, scores)
+
+id_test1 <- test1[,1:2]
+test_course1 <- test1[,65:117]
+table(train_course1$score_class)
+
+###-------------Classification------------###
+###-------------Classification------------###
+train.control <- trainControl(method="LOOCV",classProbs = TRUE)
+
+model_weights <- ifelse(train_course1$score_class == "fail",
+                        (1/table(train_course1$score_class)[1]) * 0.5,
+                        (1/table(train_course1$score_class)[2]) * 0.5)
+
+## GENERALIZED BOOSTED RGRESSION MODEL (BGM)  
+
+# Set up training control
+ctrl <- trainControl(method = "repeatedcv",   # 10fold cross validation
+                     number = 20,							# do 5 repititions of cv
+                     summaryFunction=twoClassSummary,	# Use AUC to pick the best model
+                     classProbs=TRUE,
+                     allowParallel = TRUE)
+
+# Use the expand.grid to specify the search space	
+# Note that the default search grid selects multiple values of each tuning parameter
+
+grid <- expand.grid(interaction.depth=c(1,2), # Depth of variable interactions
+                    n.trees=c(10,20,50),	        # Num trees to fit
+                    shrinkage=c(0.01,0.1),		# Try 2 values for learning rate 
+                    n.minobsinnode = 20)
+#											
+set.seed(123)  # set the seed
+
+# Set up to do parallel processing   
+registerDoParallel(4)		# Registrer a parallel backend for train
+getDoParWorkers()
+
+gbm.tune1 <- train(score_class ~ ., data = train_course1,
+                   method = "gbm",
+                   metric = "ROC",
+                   trControl = ctrl,
+                   tuneGrid=grid,
+                   verbose=FALSE,
+                   weights = model_weights)
+
+# Look at the tuning results
+# Note that ROC was the performance criterion used to select the optimal model.   
+
+gbm.tune1$bestTune
+plot(gbm.tune1) 
+
+grid1 = gbm.tune1$bestTune
+getDoParWorkers()
+
+ctrl <- trainControl(method = "LOOCV",   # 10fold cross validation
+                     number = 5,							# do 5 repititions of cv
+                     summaryFunction=twoClassSummary,	# Use AUC to pick the best model
+                     classProbs=TRUE,
+                     allowParallel = TRUE)
+
+
+gbm.tune <- train(score_class ~ ., data = train_course1,
+                  method = "gbm",
+                  metric = "ROC",
+                  trControl = ctrl,
+                  tuneGrid=grid1,
+                  verbose=FALSE,
+                  weights = model_weights)
+
+
+
+# Plot the performance of the training models
+res <- gbm.tune$results
+res
+
+### GBM Model Predictions and Performance
+# Make predictions using the test data set
+gbm.pred <- predict(gbm.tune,test_course1)
+
+#Look at the confusion matrix  
+confusionMatrix(gbm.pred,test1$score_class)   
+
+#Draw the ROC curve 
+weeks.probs <- predict(gbm.tune,test_course1,type="prob")
+
+roc.weeks <- roc(predictor=weeks.probs$fail,
+                 response=test1$score_class,
+                 levels=rev(levels(test1$score_class)),direction = "<")
+roc.weeks$auc
+#Area under the curve: 0.5624
+plot(roc.weeks,main="GBM ROC")
+
+##------Training and predicting over videos----####
+course1 <- tibble::rowid_to_column(course1, "row")
+set.seed(123)
+
+course1 <- course1 %>%
+  mutate(score_class = cut(as.numeric(course1$final_score), breaks=c(0,9.9,21), labels=c( 'fail', 'pass')))
+
+
+course1 <- course1 %>%
+  mutate(score_class = as.factor(course1$score_class))
+
+#c1 <- course1[course1$cluster==2,]
+c1 <- course1[,]
+
+library(splitstackshape)
+train1 <- stratified(c1, c("score_class"), 0.8)
+
+sid<-train1$row
+test1 <- c1[!(c1$row %in% sid),]
+
+scores <- train1[,138]
+
+train_course1 <- train1[,118:137]
+train_course1 <- bind_cols(train_course1, scores)
+
+id_test1 <- test1[,1:2]
+test_course1 <- test1[,118:137]
+table(train_course1$score_class)
+
+###-------------Classification------------###
+train.control <- trainControl(method="LOOCV",classProbs = TRUE)
+
+model_weights <- ifelse(train_course1$score_class == "fail",
+                        (1/table(train_course1$score_class)[1]) * 0.5,
+                        (1/table(train_course1$score_class)[2]) * 0.5)
+
+## GENERALIZED BOOSTED RGRESSION MODEL (BGM)  
+
+# Set up training control
+ctrl <- trainControl(method = "repeatedcv",   # 10fold cross validation
+                     number = 20,							# do 5 repititions of cv
+                     summaryFunction=twoClassSummary,	# Use AUC to pick the best model
+                     classProbs=TRUE,
+                     allowParallel = TRUE)
+
+# Use the expand.grid to specify the search space	
+# Note that the default search grid selects multiple values of each tuning parameter
+
+grid <- expand.grid(interaction.depth=c(1,2), # Depth of variable interactions
+                    n.trees=c(10,20,50),	        # Num trees to fit
+                    shrinkage=c(0.01,0.1),		# Try 2 values for learning rate 
+                    n.minobsinnode = 20)
+#											
+set.seed(123)  # set the seed
+
+# Set up to do parallel processing   
+registerDoParallel(4)		# Registrer a parallel backend for train
+getDoParWorkers()
+
+gbm.tune1 <- train(score_class ~ ., data = train_course1,
+                   method = "gbm",
+                   metric = "ROC",
+                   trControl = ctrl,
+                   tuneGrid=grid,
+                   verbose=FALSE,
+                   weights = model_weights)
+
+# Look at the tuning results
+# Note that ROC was the performance criterion used to select the optimal model.   
+
+gbm.tune1$bestTune
+plot(gbm.tune1) 
+
+grid1 = gbm.tune1$bestTune
+getDoParWorkers()
+
+ctrl <- trainControl(method = "LOOCV",   # 10fold cross validation
+                     number = 5,							# do 5 repititions of cv
+                     summaryFunction=twoClassSummary,	# Use AUC to pick the best model
+                     classProbs=TRUE,
+                     allowParallel = TRUE)
+
+
+gbm.tune <- train(score_class ~ ., data = train_course1,
+                  method = "gbm",
+                  metric = "ROC",
+                  trControl = ctrl,
+                  tuneGrid=grid1,
+                  verbose=FALSE,
+                  weights = model_weights)
+
+
+
+# Plot the performance of the training models
+res <- gbm.tune$results
+res
+
+### GBM Model Predictions and Performance
+# Make predictions using the test data set
+gbm.pred <- predict(gbm.tune,test_course1)
+
+#Look at the confusion matrix  
+confusionMatrix(gbm.pred,test1$score_class)   
+
+#Draw the ROC curve 
+videos.prob <- predict(gbm.tune,test_course1,type="prob")
+head(gbm.probs)
+
+roc.videos <- roc(predictor=videos.prob$fail,
+                  response=test1$score_class,
+                  levels=rev(levels(test1$score_class)),direction = "<")
+roc.videos$auc
+#Area under the curve: 0.5624
+plot(roc.videos,main="GBM ROC")
+
+
+
+par(pty="s")
+plot(roc.test_grades,main="ROC curves based on different feature sets for the course: bank en finacien")
+
+gbm.test_grades <- roc(predictor=test_grades.probs$fail,
+                       response=test1$score_class,
+                       levels=rev(levels(test1$score_class)),
+                       direction= "<",
+                       plot=TRUE,print.auc=TRUE,col="blue",lwd = 4,print.auc.y=0.4,legacy.axes=TRUE,add = TRUE)
+
+gbm.videos <- roc(predictor=videos.prob$fail,
+                  response=test1$score_class,
+                  levels=rev(levels(test1$score_class)),
+                  direction= "<",
+                  plot=TRUE,print.auc=TRUE,col="red",lwd = 4,print.auc.y=0.35,legacy.axes=TRUE,add = TRUE)
+
+gbm.weeks <- roc(predictor=weeks.probs$fail,
+                 response=test1$score_class,
+                 levels=rev(levels(test1$score_class)),direction = "<",
+                 plot=TRUE,print.auc=TRUE,col="green",lwd = 4,print.auc.y=0.3,legacy.axes=TRUE,add = TRUE)
+
+
+legend("bottomright",legend=c("feature set: test grades","feature set: number of times videos opened","feature set: student activities in each week"),col=c("blue","red","green"),lwd = 4)
+
+
+####-------predict by each week-------#####
+attempt_test_selected <- attempt_student_selected %>% mutate(time = dmy_hms(submit_date)) %>%
+  mutate(year = year(time)) %>%
+  mutate(month = month(time)) %>%
+  mutate(day= day(time)) %>%
+  mutate(week = week(time)) %>%
+  mutate(academic_week = ifelse(week > 38 & week < 53,(week-38),ifelse(week == 53,14,(52-38 + week)))) %>%
+  mutate(course_week = (academic_week -19))
+
+attempt_test_selected1 <- attempt_test_selected[attempt_test_selected$course_week<13,]
+
+rm(train_course1)
+rm(test_course1)
+##---number of exam attempts----###
+nn <- attempts %>%
+  group_by(content_id,user_pk) %>%
+  filter(user_pk %in% sap$user_pk) %>%
+  dplyr::summarize(number_tries = n(), 
+                   lowset = min(as.numeric(score)),highest = max(as.numeric(score)),
+                   .groups = 'keep')
+names(nn)[1] <- "content_pk"
+attempt_student <- merge(nn,content_df[,c("content_pk","course_pk","title",
+                                          "possible_score","content_type")],by="content_pk")
+
+attempt_student <- attempt_student %>%
+  mutate(test_percentage = (highest/possible_score*100))
+rm(nn)
+
+attempt_student_selected <- attempts[(attempts$content_id %in% content_df[(content_df$course_pk==888132),"content_pk"]),]
+###----week5-----#####
+attempt_test_week5 <- attempt_test_selected[attempt_test_selected$course_week<6,]
+nn <- attempt_test_week5 %>%
+  group_by(content_id,user_pk) %>%
+  filter(user_pk %in% sap$user_pk) %>%
+  dplyr::summarize(number_tries = n(), 
+                   lowset = min(as.numeric(score)),highest = max(as.numeric(score)),
+                   .groups = 'keep')
+names(nn)[1] <- "content_pk"
+attempt_student_week_5 <- merge(nn,content_df[,c("content_pk","course_pk","title",
+                                          "possible_score","content_type")],by="content_pk")
+
+attempt_student_week_5 <- attempt_student_week_5 %>%
+  mutate(test_percentage = (highest/possible_score*100))
+rm(nn)
+
+course1 <- sap1 %>%
+  select(course_name,user_pk,final_score)
+
+c <- attempt_student_week_5 %>%
+  distinct(content_pk)
+
+b <- attempt_student_week_5 %>%
+  group_by(user_pk) %>%
+  spread(content_pk,highest) %>%
+  group_by(user_pk) %>%
+  summarise_at(vars(c$content_pk), sum, na.rm = TRUE)
+
+
+b <- b %>% rename_at(vars(c$content_pk), ~ paste0('test', 1:length(c$content_pk)))
+course1_5 <- merge(course1,b,by="user_pk",all.x = TRUE)
+
+
+sum(is.na(course1_5))
+vis_miss(course1_5)
+course1_5 <- course1_5 %>%
+  mutate(n_tests_taken =  rowSums(. != 0)-3) 
+
+
+
+course1_5 <- course1_5 %>%
+  mutate(n_tests_taken = ifelse(is.na(course1_5$n_tests_taken),0,course1_5$n_tests_taken))
+
+course1_5$test1 <- replace(course1_5$test1, is.na(course1_5$test1), 0)
+course1_5$test2 <- replace(course1_5$test2, is.na(course1_5$test2), 0)
+course1_5$test3 <- replace(course1_5$test3, is.na(course1_5$test3), 0)
+course1_5$test4 <- replace(course1_5$test4, is.na(course1_5$test4), 0)
+
+course1_5 <- course1_5 %>%
+  mutate(sum_tests_taken =  select(.,test1:test4) %>% rowSums(.))
+
+
+vis_miss(course1_5)
+
+#-----test percentage----#######
+b <- attempt_student_week_5 %>%
+  group_by(user_pk) %>%
+  spread(content_pk,test_percentage) %>%
+  group_by(user_pk) %>%
+  summarise_at(vars(c$content_pk), sum, na.rm = TRUE)
+
+
+b <- b %>% rename_at(vars(c$content_pk), ~ paste0('test_percentage', 1:length(c$content_pk)))
+course1_5 <- merge(course1_5,b,by="user_pk",all.x = TRUE)
+
+sum(is.na(course1_5))
+vis_miss(course1_5)
+
+course1_5$test_percentage1 <- replace(course1_5$test_percentage1, is.na(course1_5$test_percentage1),0)
+course1_5$test_percentage2 <- replace(course1_5$test_percentage2, is.na(course1_5$test_percentage2), 0)
+course1_5$test_percentage3 <- replace(course1_5$test_percentage3, is.na(course1_5$test_percentage3), 0)
+course1_5$test_percentage4 <- replace(course1_5$test_percentage4, is.na(course1_5$test_percentage4), 0)
+
+vis_miss(course1_5)
+
+course1_5 <- course1_5 %>%
+  mutate(average_tests_taken =  select(.,test_percentage1:test_percentage4) %>% rowMeans(.))
+
+
+###------week5 dataset#-----
+weeks5 <- course[,65:69]
+sum_weeks5 <- course[,82:85]
+days_week5 <- course[,100:104]
+video_week5 <- course[,117:118] %>%
+  select(n_times_opened_video1)
+course1_5 <- course1_5 %>%
+  cbind(weeks5,sum_weeks5,video_week5)
+
+
+##------Training and predicting over week5----####
+course1_5 <- tibble::rowid_to_column(course1_5, "row")
+set.seed(123)
+
+course1_5 <- course1_5 %>%
+  mutate(score_class = cut(as.numeric(course1_5$final_score), breaks=c(0,9.9,21), labels=c( 'fail', 'pass')))
+
+
+course1_5 <- course1_5 %>%
+  mutate(score_class = as.factor(course1_5$score_class))
+
+#c1 <- course1_5[course1_5$cluster==2,]
+c1 <- course1_5[,]
+
+library(splitstackshape)
+train1 <- stratified(c1, c("score_class"), 0.8)
+
+sid<-train1$row
+test1 <- c1[!(c1$row %in% sid),]
+
+scores <- train1[,26]
+
+train_course1 <- train1[,5:25]
+train_course1 <- bind_cols(train_course1, scores)
+
+id_test1 <- test1[,1:2]
+test_course1 <- test1[,5:25]
+table(train_course1$score_class)
+
+###-------------Classification------------###
+train.control <- trainControl(method="LOOCV",classProbs = TRUE)
+
+model_weights <- ifelse(train_course1$score_class == "fail",
+                        (1/table(train_course1$score_class)[1]) * 0.5,
+                        (1/table(train_course1$score_class)[2]) * 0.5)
+
+## GENERALIZED BOOSTED RGRESSION MODEL (BGM)  
+
+# Set up training control
+ctrl <- trainControl(method = "repeatedcv",   # 10fold cross validation
+                     number = 20,							# do 5 repititions of cv
+                     summaryFunction=twoClassSummary,	# Use AUC to pick the best model
+                     classProbs=TRUE,
+                     allowParallel = TRUE)
+
+# Use the expand.grid to specify the search space	
+# Note that the default search grid selects multiple values of each tuning parameter
+
+grid <- expand.grid(interaction.depth=c(1,2), # Depth of variable interactions
+                    n.trees=c(10,20,50),	        # Num trees to fit
+                    shrinkage=c(0.01,0.1),		# Try 2 values for learning rate 
+                    n.minobsinnode = 20)
+#											
+set.seed(123)  # set the seed
+
+# Set up to do parallel processing   
+registerDoParallel(4)		# Registrer a parallel backend for train
+getDoParWorkers()
+
+gbm.tune1 <- train(score_class ~ ., data = train_course1,
+                   method = "gbm",
+                   metric = "ROC",
+                   trControl = ctrl,
+                   tuneGrid=grid,
+                   verbose=FALSE,
+                   weights = model_weights)
+
+# Look at the tuning results
+# Note that ROC was the performance criterion used to select the optimal model.   
+
+gbm.tune1$bestTune
+plot(gbm.tune1) 
+
+grid1 = gbm.tune1$bestTune
+getDoParWorkers()
+
+ctrl <- trainControl(method = "LOOCV",   # 10fold cross validation
+                     number = 5,							# do 5 repititions of cv
+                     summaryFunction=twoClassSummary,	# Use AUC to pick the best model
+                     classProbs=TRUE,
+                     allowParallel = TRUE)
+
+
+gbm.tune5 <- train(score_class ~ ., data = train_course1,
+                  method = "gbm",
+                  metric = "ROC",
+                  trControl = ctrl,
+                  tuneGrid=grid1,
+                  verbose=FALSE,
+                  weights = model_weights)
+
+
+
+res <- gbm.tune5$results
+res
+
+gbm.pred5 <- predict(gbm.tune5,test_course1)
+
+confusionMatrix(gbm.pred5,test1$score_class)   
+
+week5.prob <- predict(gbm.tune5,test_course1,type="prob")
+
+roc.week5 <- roc(predictor=week5.prob$fail,
+                  response=test1$score_class,
+                  levels=rev(levels(test1$score_class)))
+roc.week5$auc
+plot(roc.week5,main="GBM ROC")
+
+plot(roc.week5,main="ROC curves in diffrent weeks: bank en finacien")
+
+
+roc(predictor=week5.prob$fail,
+    response=test1$score_class,
+    levels=rev(levels(test1$score_class)),
+    plot=TRUE,print.auc=TRUE,col="red",lwd = 4,print.auc.y=0.35,legacy.axes=TRUE,add = TRUE)
+
+
+
+###----week7-----#####
+attempt_test_week7 <- attempt_test_selected[attempt_test_selected$course_week<8,]
+nn <- attempt_test_week7 %>%
+  group_by(content_id,user_pk) %>%
+  filter(user_pk %in% sap$user_pk) %>%
+  dplyr::summarize(number_tries = n(), 
+                   lowset = min(as.numeric(score)),highest = max(as.numeric(score)),
+                   .groups = 'keep')
+names(nn)[1] <- "content_pk"
+attempt_student_week_7 <- merge(nn,content_df[,c("content_pk","course_pk","title",
+                                                 "possible_score","content_type")],by="content_pk")
+
+attempt_student_week_7 <- attempt_student_week_7 %>%
+  mutate(test_percentage = (highest/possible_score*100))
+rm(nn)
+
+course1 <- sap1 %>%
+  select(course_name,user_pk,final_score)
+
+c <- attempt_student_week_7 %>%
+  distinct(content_pk)
+
+b <- attempt_student_week_7 %>%
+  group_by(user_pk) %>%
+  spread(content_pk,highest) %>%
+  group_by(user_pk) %>%
+  summarise_at(vars(c$content_pk), sum, na.rm = TRUE)
+
+
+b <- b %>% rename_at(vars(c$content_pk), ~ paste0('test', 1:length(c$content_pk)))
+course1_7 <- merge(course1,b,by="user_pk",all.x = TRUE)
+
+
+sum(is.na(course1_7))
+vis_miss(course1_7)
+course1_7 <- course1_7 %>%
+  mutate(n_tests_taken =  rowSums(. != 0)-3) 
+
+
+
+course1_7 <- course1_7 %>%
+  mutate(n_tests_taken = ifelse(is.na(course1_7$n_tests_taken),0,course1_7$n_tests_taken))
+
+course1_7$test1 <- replace(course1_7$test1, is.na(course1_7$test1), 0)
+course1_7$test2 <- replace(course1_7$test2, is.na(course1_7$test2), 0)
+course1_7$test3 <- replace(course1_7$test3, is.na(course1_7$test3), 0)
+course1_7$test4 <- replace(course1_7$test4, is.na(course1_7$test4), 0)
+course1_7$test5 <- replace(course1_7$test5, is.na(course1_7$test5), 0)
+course1_7$test6 <- replace(course1_7$test6, is.na(course1_7$test6), 0)
+
+course1_7 <- course1_7 %>%
+  mutate(sum_tests_taken =  select(.,test1:test6) %>% rowSums(.))
+
+
+vis_miss(course1_7)
+
+#-----test percentage----#######
+b <- attempt_student_week_7 %>%
+  group_by(user_pk) %>%
+  spread(content_pk,test_percentage) %>%
+  group_by(user_pk) %>%
+  summarise_at(vars(c$content_pk), sum, na.rm = TRUE)
+
+
+b <- b %>% rename_at(vars(c$content_pk), ~ paste0('test_percentage', 1:length(c$content_pk)))
+course1_7 <- merge(course1_7,b,by="user_pk",all.x = TRUE)
+
+sum(is.na(course1_7))
+vis_miss(course1_7)
+
+course1_7$test_percentage1 <- replace(course1_7$test_percentage1, is.na(course1_7$test_percentage1),0)
+course1_7$test_percentage2 <- replace(course1_7$test_percentage2, is.na(course1_7$test_percentage2), 0)
+course1_7$test_percentage3 <- replace(course1_7$test_percentage3, is.na(course1_7$test_percentage3), 0)
+course1_7$test_percentage4 <- replace(course1_7$test_percentage4, is.na(course1_7$test_percentage4), 0)
+course1_7$test_percentage5 <- replace(course1_7$test_percentage5, is.na(course1_7$test_percentage5), 0)
+course1_7$test_percentage6 <- replace(course1_7$test_percentage6, is.na(course1_7$test_percentage6), 0)
+
+vis_miss(course1_7)
+
+course1_7 <- course1_7 %>%
+  mutate(average_tests_taken =  select(.,test_percentage1:test_percentage6) %>% rowMeans(.))
+
+videos_agg <- event_selected_course %>%
+  filter(content_type == "resource/x-osv-kaltura/mashup") %>%
+  group_by(content_pk,academic_week) %>%
+  dplyr::summarise(n=n())
+###------week7 dataset#-----
+weeks7 <- course[,65:71]
+sum_weeks7 <- course[,83:87]
+days_week7 <- course[,100:105]
+video_week7 <- course[,118:120]
+course1_7 <- course1_7 %>%
+  cbind(weeks7,sum_weeks7,video_week7)
+
+
+##------Training and predicting over week7----####
+course1_7 <- tibble::rowid_to_column(course1_7, "row")
+set.seed(123)
+
+course1_7 <- course1_7 %>%
+  mutate(score_class = cut(as.numeric(course1_7$final_score), breaks=c(0,9.9,21), labels=c( 'fail', 'pass')))
+
+
+course1_7 <- course1_7 %>%
+  mutate(score_class = as.factor(course1_7$score_class))
+
+#c1 <- course1_7[course1_7$cluster==2,]
+c1 <- course1_7[,]
+
+library(splitstackshape)
+train1 <- stratified(c1, c("score_class"), 0.8)
+
+sid<-train1$row
+test1 <- c1[!(c1$row %in% sid),]
+
+scores <- train1[,35]
+
+train_course1 <- train1[,5:34]
+train_course1 <- bind_cols(train_course1, scores)
+
+id_test1 <- test1[,1:2]
+test_course1 <- test1[,5:34]
+table(train_course1$score_class)
+
+###-------------Classification------------###
+train.control <- trainControl(method="LOOCV",classProbs = TRUE)
+
+model_weights <- ifelse(train_course1$score_class == "fail",
+                        (1/table(train_course1$score_class)[1]) * 0.5,
+                        (1/table(train_course1$score_class)[2]) * 0.5)
+
+## GENERALIZED BOOSTED RGRESSION MODEL (BGM)  
+
+# Set up training control
+ctrl <- trainControl(method = "repeatedcv",   # 10fold cross validation
+                     number = 20,							# do 5 repititions of cv
+                     summaryFunction=twoClassSummary,	# Use AUC to pick the best model
+                     classProbs=TRUE,
+                     allowParallel = TRUE)
+
+# Use the expand.grid to specify the search space	
+# Note that the default search grid selects multiple values of each tuning parameter
+
+grid <- expand.grid(interaction.depth=c(1,2), # Depth of variable interactions
+                    n.trees=c(10,20,50),	        # Num trees to fit
+                    shrinkage=c(0.01,0.1),		# Try 2 values for learning rate 
+                    n.minobsinnode = 20)
+#											
+set.seed(123)  # set the seed
+
+# Set up to do parallel processing   
+registerDoParallel(4)		# Registrer a parallel backend for train
+getDoParWorkers()
+
+gbm.tune1 <- train(score_class ~ ., data = train_course1,
+                   method = "gbm",
+                   metric = "ROC",
+                   trControl = ctrl,
+                   tuneGrid=grid,
+                   verbose=FALSE,
+                   weights = model_weights)
+
+# Look at the tuning results
+# Note that ROC was the performance criterion used to select the optimal model.   
+
+gbm.tune1$bestTune
+plot(gbm.tune1) 
+
+grid1 = gbm.tune1$bestTune
+getDoParWorkers()
+
+ctrl <- trainControl(method = "LOOCV",   # 10fold cross validation
+                     number = 5,							# do 5 repititions of cv
+                     summaryFunction=twoClassSummary,	# Use AUC to pick the best model
+                     classProbs=TRUE,
+                     allowParallel = TRUE)
+
+
+gbm.tune7 <- train(score_class ~ ., data = train_course1,
+                  method = "gbm",
+                  metric = "ROC",
+                  trControl = ctrl,
+                  tuneGrid=grid1,
+                  verbose=FALSE,
+                  weights = model_weights)
+
+
+
+res <- gbm.tune7$results
+res
+
+gbm.pred7 <- predict(gbm.tune7,test_course1)
+
+confusionMatrix(gbm.pred7,test1$score_class)   
+
+week7.prob <- predict(gbm.tune7,test_course1,type="prob")
+
+roc.week7 <- roc(predictor=week7.prob$fail,
+                 response=test1$score_class,
+                 levels=rev(levels(test1$score_class)),direction = "<")
+roc.week7$auc
+plot(roc.week7,main="GBM ROC")
+
+plot(roc.week7,main="ROC curves in diffrent weeks: bank en finacien")
+
+
+roc(predictor=week7.prob$fail,
+    response=test1$score_class,
+    levels=rev(levels(test1$score_class)),
+    plot=TRUE,print.auc=TRUE,col="red",lwd = 4,print.auc.y=0.35,legacy.axes=TRUE,add = TRUE)
+
+
+###----week9-----#####
+attempt_test_week9 <- attempt_test_selected[attempt_test_selected$course_week<10,]
+nn <- attempt_test_week9 %>%
+  group_by(content_id,user_pk) %>%
+  filter(user_pk %in% sap$user_pk) %>%
+  dplyr::summarize(number_tries = n(), 
+                   lowset = min(as.numeric(score)),highest = max(as.numeric(score)),
+                   .groups = 'keep')
+names(nn)[1] <- "content_pk"
+attempt_student_week_9 <- merge(nn,content_df[,c("content_pk","course_pk","title",
+                                                 "possible_score","content_type")],by="content_pk")
+
+attempt_student_week_9 <- attempt_student_week_9 %>%
+  mutate(test_percentage = (highest/possible_score*100))
+rm(nn)
+
+course1 <- sap1 %>%
+  select(course_name,user_pk,final_score)
+
+c <- attempt_student_week_9 %>%
+  distinct(content_pk)
+
+b <- attempt_student_week_9 %>%
+  group_by(user_pk) %>%
+  spread(content_pk,highest) %>%
+  group_by(user_pk) %>%
+  summarise_at(vars(c$content_pk), sum, na.rm = TRUE)
+
+
+b <- b %>% rename_at(vars(c$content_pk), ~ paste0('test', 1:length(c$content_pk)))
+course1_9 <- merge(course1,b,by="user_pk",all.x = TRUE)
+
+
+sum(is.na(course1_9))
+vis_miss(course1_9)
+course1_9 <- course1_9 %>%
+  mutate(n_tests_taken =  rowSums(. != 0)-3) 
+
+
+
+course1_9 <- course1_9 %>%
+  mutate(n_tests_taken = ifelse(is.na(course1_9$n_tests_taken),0,course1_9$n_tests_taken))
+
+course1_9$test1 <- replace(course1_9$test1, is.na(course1_9$test1), 0)
+course1_9$test2 <- replace(course1_9$test2, is.na(course1_9$test2), 0)
+course1_9$test3 <- replace(course1_9$test3, is.na(course1_9$test3), 0)
+course1_9$test4 <- replace(course1_9$test4, is.na(course1_9$test4), 0)
+course1_9$test5 <- replace(course1_9$test5, is.na(course1_9$test5), 0)
+course1_9$test6 <- replace(course1_9$test6, is.na(course1_9$test6), 0)
+course1_9$test7 <- replace(course1_9$test7, is.na(course1_9$test7), 0)
+course1_9$test8 <- replace(course1_9$test8, is.na(course1_9$test8), 0)
+
+course1_9 <- course1_9 %>%
+  mutate(sum_tests_taken =  select(.,test1:test8) %>% rowSums(.))
+
+
+vis_miss(course1_9)
+
+#-----test percentage----#######
+b <- attempt_student_week_9 %>%
+  group_by(user_pk) %>%
+  spread(content_pk,test_percentage) %>%
+  group_by(user_pk) %>%
+  summarise_at(vars(c$content_pk), sum, na.rm = TRUE)
+
+
+b <- b %>% rename_at(vars(c$content_pk), ~ paste0('test_percentage', 1:length(c$content_pk)))
+course1_9 <- merge(course1_9,b,by="user_pk",all.x = TRUE)
+
+sum(is.na(course1_9))
+vis_miss(course1_9)
+
+course1_9$test_percentage1 <- replace(course1_9$test_percentage1, is.na(course1_9$test_percentage1),0)
+course1_9$test_percentage2 <- replace(course1_9$test_percentage2, is.na(course1_9$test_percentage2), 0)
+course1_9$test_percentage3 <- replace(course1_9$test_percentage3, is.na(course1_9$test_percentage3), 0)
+course1_9$test_percentage4 <- replace(course1_9$test_percentage4, is.na(course1_9$test_percentage4), 0)
+course1_9$test_percentage5 <- replace(course1_9$test_percentage5, is.na(course1_9$test_percentage5), 0)
+course1_9$test_percentage6 <- replace(course1_9$test_percentage6, is.na(course1_9$test_percentage6), 0)
+course1_9$test_percentage7 <- replace(course1_9$test_percentage6, is.na(course1_9$test_percentage7), 0)
+course1_9$test_percentage8 <- replace(course1_9$test_percentage6, is.na(course1_9$test_percentage8), 0)
+
+vis_miss(course1_9)
+
+course1_9 <- course1_9 %>%
+  mutate(average_tests_taken =  select(.,test_percentage1:test_percentage8) %>% rowMeans(.))
+
+videos_agg <- event_selected_course %>%
+  filter(content_type == "resource/x-osv-kaltura/mashup") %>%
+  group_by(content_pk,academic_week) %>%
+  dplyr::summarise(n=n())
+###------week9 dataset#-----
+weeks9 <- course[,65:73]
+sum_weeks9 <- course[,83:89]
+days_week9 <- course[,100:109]
+video_week9 <- course[,118:122]
+course1_9 <- course1_9 %>%
+  cbind(weeks9,sum_weeks9,video_week9)
+
+
+##------Training and predicting over week9----####
+course1_9 <- tibble::rowid_to_column(course1_9, "row")
+set.seed(123)
+
+course1_9 <- course1_9 %>%
+  mutate(score_class = cut(as.numeric(course1_9$final_score), breaks=c(0,9.9,21), labels=c( 'fail', 'pass')))
+
+
+course1_9 <- course1_9 %>%
+  mutate(score_class = as.factor(course1_9$score_class))
+
+#c1 <- course1_9[course1_9$cluster==2,]
+c1 <- course1_9[,]
+
+library(splitstackshape)
+train1 <- stratified(c1, c("score_class"), 0.8)
+
+sid<-train1$row
+test1 <- c1[!(c1$row %in% sid),]
+
+scores <- train1[,45]
+
+train_course1 <- train1[,5:44]
+train_course1 <- bind_cols(train_course1, scores)
+
+id_test1 <- test1[,1:2]
+test_course1 <- test1[,5:44]
+table(train_course1$score_class)
+
+###-------------Classification------------###
+train.control <- trainControl(method="LOOCV",classProbs = TRUE)
+
+model_weights <- ifelse(train_course1$score_class == "fail",
+                        (1/table(train_course1$score_class)[1]) * 0.5,
+                        (1/table(train_course1$score_class)[2]) * 0.5)
+
+## GENERALIZED BOOSTED RGRESSION MODEL (BGM)  
+
+# Set up training control
+ctrl <- trainControl(method = "repeatedcv",   # 10fold cross validation
+                     number = 20,							# do 5 repititions of cv
+                     summaryFunction=twoClassSummary,	# Use AUC to pick the best model
+                     classProbs=TRUE,
+                     allowParallel = TRUE)
+
+# Use the expand.grid to specify the search space	
+# Note that the default search grid selects multiple values of each tuning parameter
+
+grid <- expand.grid(interaction.depth=c(1,2), # Depth of variable interactions
+                    n.trees=c(10,20,50),	        # Num trees to fit
+                    shrinkage=c(0.01,0.1),		# Try 2 values for learning rate 
+                    n.minobsinnode = 20)
+#											
+set.seed(123)  # set the seed
+
+# Set up to do parallel processing   
+registerDoParallel(4)		# Registrer a parallel backend for train
+getDoParWorkers()
+
+gbm.tune1 <- train(score_class ~ ., data = train_course1,
+                   method = "gbm",
+                   metric = "ROC",
+                   trControl = ctrl,
+                   tuneGrid=grid,
+                   verbose=FALSE,
+                   weights = model_weights)
+
+# Look at the tuning results
+# Note that ROC was the performance criterion used to select the optimal model.   
+
+gbm.tune1$bestTune
+plot(gbm.tune1) 
+
+grid1 = gbm.tune1$bestTune
+getDoParWorkers()
+
+ctrl <- trainControl(method = "LOOCV",   # 10fold cross validation
+                     number = 5,							# do 5 repititions of cv
+                     summaryFunction=twoClassSummary,	# Use AUC to pick the best model
+                     classProbs=TRUE,
+                     allowParallel = TRUE)
+
+
+gbm.tune9 <- train(score_class ~ ., data = train_course1,
+                  method = "gbm",
+                  metric = "ROC",
+                  trControl = ctrl,
+                  tuneGrid=grid1,
+                  verbose=FALSE,
+                  weights = model_weights)
+
+
+
+res <- gbm.tune9$results
+res
+
+gbm.pred9 <- predict(gbm.tune9,test_course1)
+
+confusionMatrix(gbm.pred9,test1$score_class)   
+
+week9.prob <- predict(gbm.tune9,test_course1,type="prob")
+
+roc.week9 <- roc(predictor=week9.prob$fail,
+                 response=test1$score_class,
+                 levels=rev(levels(test1$score_class)))
+roc.week9$auc
+plot(roc.week9,main="GBM ROC")
+
+plot(roc.week9,main="ROC curves in diffrent weeks: bank en finacien")
+
+
+roc(predictor=week9.prob$fail,
+    response=test1$score_class,
+    levels=rev(levels(test1$score_class)),
+    plot=TRUE,print.auc=TRUE,col="red",lwd = 4,print.auc.y=0.35,legacy.axes=TRUE,add = TRUE)
+
+
+
+###----week12-----#####
+attempt_test_week12 <- attempt_test_selected[attempt_test_selected$course_week<13,]
+nn <- attempt_test_week12 %>%
+  group_by(content_id,user_pk) %>%
+  filter(user_pk %in% sap$user_pk) %>%
+  dplyr::summarize(number_tries = n(), 
+                   lowset = min(as.numeric(score)),highest = max(as.numeric(score)),
+                   .groups = 'keep')
+names(nn)[1] <- "content_pk"
+attempt_student_week_12 <- merge(nn,content_df[,c("content_pk","course_pk","title",
+                                                 "possible_score","content_type")],by="content_pk")
+
+attempt_student_week_12 <- attempt_student_week_12 %>%
+  mutate(test_percentage = (highest/possible_score*100))
+rm(nn)
+
+course1 <- sap1 %>%
+  select(course_name,user_pk,final_score)
+
+c <- attempt_student_week_12 %>%
+  distinct(content_pk)
+
+b <- attempt_student_week_12 %>%
+  group_by(user_pk) %>%
+  spread(content_pk,highest) %>%
+  group_by(user_pk) %>%
+  summarise_at(vars(c$content_pk), sum, na.rm = TRUE)
+
+
+b <- b %>% rename_at(vars(c$content_pk), ~ paste0('test', 1:length(c$content_pk)))
+course1_12 <- merge(course1,b,by="user_pk",all.x = TRUE)
+
+
+sum(is.na(course1_12))
+vis_miss(course1_12)
+course1_12 <- course1_12 %>%
+  mutate(n_tests_taken =  rowSums(. != 0)-3) 
+
+
+
+course1_12 <- course1_12 %>%
+  mutate(n_tests_taken = ifelse(is.na(course1_12$n_tests_taken),0,course1_12$n_tests_taken))
+
+course1_12$test1 <- replace(course1_12$test1, is.na(course1_12$test1), 0)
+course1_12$test2 <- replace(course1_12$test2, is.na(course1_12$test2), 0)
+course1_12$test3 <- replace(course1_12$test3, is.na(course1_12$test3), 0)
+course1_12$test4 <- replace(course1_12$test4, is.na(course1_12$test4), 0)
+course1_12$test5 <- replace(course1_12$test5, is.na(course1_12$test5), 0)
+course1_12$test6 <- replace(course1_12$test6, is.na(course1_12$test6), 0)
+course1_12$test7 <- replace(course1_12$test7, is.na(course1_12$test7), 0)
+course1_12$test8 <- replace(course1_12$test8, is.na(course1_12$test8), 0)
+course1_12$test9 <- replace(course1_12$test9, is.na(course1_12$test9), 0)
+course1_12$test10 <- replace(course1_12$test10, is.na(course1_12$test10), 0)
+course1_12$test11 <- replace(course1_12$test11, is.na(course1_12$test11), 0)
+course1_12$test12 <- replace(course1_12$test12, is.na(course1_12$test12), 0)
+course1_12$test13 <- replace(course1_12$test13, is.na(course1_12$test13), 0)
+course1_12$test14 <- replace(course1_12$test14, is.na(course1_12$test14), 0)
+
+course1_12 <- course1_12 %>%
+  mutate(sum_tests_taken =  select(.,test1:test14) %>% rowSums(.))
+
+
+vis_miss(course1_12)
+
+#-----test percentage----#######
+b <- attempt_student_week_12 %>%
+  group_by(user_pk) %>%
+  spread(content_pk,test_percentage) %>%
+  group_by(user_pk) %>%
+  summarise_at(vars(c$content_pk), sum, na.rm = TRUE)
+
+
+b <- b %>% rename_at(vars(c$content_pk), ~ paste0('test_percentage', 1:length(c$content_pk)))
+course1_12 <- merge(course1_12,b,by="user_pk",all.x = TRUE)
+
+sum(is.na(course1_12))
+vis_miss(course1_12)
+
+course1_12$test_percentage1 <- replace(course1_12$test_percentage1, is.na(course1_12$test_percentage1),0)
+course1_12$test_percentage2 <- replace(course1_12$test_percentage2, is.na(course1_12$test_percentage2), 0)
+course1_12$test_percentage3 <- replace(course1_12$test_percentage3, is.na(course1_12$test_percentage3), 0)
+course1_12$test_percentage4 <- replace(course1_12$test_percentage4, is.na(course1_12$test_percentage4), 0)
+course1_12$test_percentage5 <- replace(course1_12$test_percentage5, is.na(course1_12$test_percentage5), 0)
+course1_12$test_percentage6 <- replace(course1_12$test_percentage6, is.na(course1_12$test_percentage6), 0)
+course1_12$test_percentage7 <- replace(course1_12$test_percentage7, is.na(course1_12$test_percentage7), 0)
+course1_12$test_percentage8 <- replace(course1_12$test_percentage8, is.na(course1_12$test_percentage8), 0)
+course1_12$test_percentage9 <- replace(course1_12$test_percentage9, is.na(course1_12$test_percentage9), 0)
+course1_12$test_percentage10 <- replace(course1_12$test_percentage10, is.na(course1_12$test_percentage10), 0)
+course1_12$test_percentage11 <- replace(course1_12$test_percentage11, is.na(course1_12$test_percentage11), 0)
+course1_12$test_percentage12 <- replace(course1_12$test_percentage12, is.na(course1_12$test_percentage12), 0)
+course1_12$test_percentage13 <- replace(course1_12$test_percentage13, is.na(course1_12$test_percentage13), 0)
+course1_12$test_percentage14 <- replace(course1_12$test_percentage14, is.na(course1_12$test_percentage14), 0)
+
+
+
+vis_miss(course1_12)
+
+course1_12 <- course1_12 %>%
+  mutate(average_tests_taken =  select(.,test_percentage1:test_percentage14) %>% rowMeans(.))
+
+videos_agg <- event_selected_course %>%
+  filter(content_type == "resource/x-osv-kaltura/mashup") %>%
+  group_by(content_pk,academic_week) %>%
+  dplyr::summarise(n=n())
+###------week12 dataset#-----
+weeks12 <- course[,65:76]
+sum_weeks12 <- course[,83:92]
+days_week12 <- course[,100:112]
+video_week12 <- course[,118:128]
+course1_12 <- course1_12 %>%
+  cbind(weeks12,sum_weeks12,video_week12)
+
+
+##------Training and predicting over week12----####
+course1_12 <- tibble::rowid_to_column(course1_12, "row")
+set.seed(123)
+
+course1_12 <- course1_12 %>%
+  mutate(score_class = cut(as.numeric(course1_12$final_score), breaks=c(0,9.9,21), labels=c( 'fail', 'pass')))
+
+
+course1_12 <- course1_12 %>%
+  mutate(score_class = as.factor(course1_12$score_class))
+
+#c1 <- course1_9[course1_9$cluster==2,]
+c1 <- course1_12[,]
+
+library(splitstackshape)
+train1 <- stratified(c1, c("score_class"), 0.8)
+
+sid<-train1$row
+test1 <- c1[!(c1$row %in% sid),]
+
+scores <- train1[,69]
+
+train_course1 <- train1[,5:68]
+train_course1 <- bind_cols(train_course1, scores)
+
+id_test1 <- test1[,1:2]
+test_course1 <- test1[,5:68]
+table(train_course1$score_class)
+
+###-------------Classification------------###
+train.control <- trainControl(method="LOOCV",classProbs = TRUE)
+
+model_weights <- ifelse(train_course1$score_class == "fail",
+                        (1/table(train_course1$score_class)[1]) * 0.5,
+                        (1/table(train_course1$score_class)[2]) * 0.5)
+
+## GENERALIZED BOOSTED RGRESSION MODEL (BGM)  
+
+# Set up training control
+ctrl <- trainControl(method = "repeatedcv",   # 10fold cross validation
+                     number = 20,							# do 5 repititions of cv
+                     summaryFunction=twoClassSummary,	# Use AUC to pick the best model
+                     classProbs=TRUE,
+                     allowParallel = TRUE)
+
+# Use the expand.grid to specify the search space	
+# Note that the default search grid selects multiple values of each tuning parameter
+
+grid <- expand.grid(interaction.depth=c(1,2), # Depth of variable interactions
+                    n.trees=c(10,20,50),	        # Num trees to fit
+                    shrinkage=c(0.01,0.1),		# Try 2 values for learning rate 
+                    n.minobsinnode = 20)
+#											
+set.seed(123)  # set the seed
+
+# Set up to do parallel processing   
+registerDoParallel(4)		# Registrer a parallel backend for train
+getDoParWorkers()
+
+gbm.tune1 <- train(score_class ~ ., data = train_course1,
+                   method = "gbm",
+                   metric = "ROC",
+                   trControl = ctrl,
+                   tuneGrid=grid,
+                   verbose=FALSE,
+                   weights = model_weights)
+
+# Look at the tuning results
+# Note that ROC was the performance criterion used to select the optimal model.   
+
+gbm.tune1$bestTune
+plot(gbm.tune1) 
+
+grid1 = gbm.tune1$bestTune
+getDoParWorkers()
+
+ctrl <- trainControl(method = "LOOCV",   # 10fold cross validation
+                     number = 5,							# do 5 repititions of cv
+                     summaryFunction=twoClassSummary,	# Use AUC to pick the best model
+                     classProbs=TRUE,
+                     allowParallel = TRUE)
+
+
+gbm.tune12 <- train(score_class ~ ., data = train_course1,
+                  method = "gbm",
+                  metric = "ROC",
+                  trControl = ctrl,
+                  tuneGrid=grid1,
+                  verbose=FALSE,
+                  weights = model_weights)
+
+
+
+res <- gbm.tune12$results
+res
+
+gbm.pred12 <- predict(gbm.tune12,test_course1)
+
+confusionMatrix(gbm.pred12,test1$score_class)   
+
+week12.prob <- predict(gbm.tune12,test_course1,type="prob")
+
+roc.week12 <- roc(predictor=week12.prob$fail,
+                 response=test1$score_class,
+                 levels=rev(levels(test1$score_class)))
+roc.week12$auc
+plot(roc.week12,main="GBM ROC")
+
+plot(roc.week12,main="ROC curves in diffrent weeks: bank en finacien")
+
+
+roc(predictor=week12.prob$fail,
+    response=test1$score_class,
+    levels=rev(levels(test1$score_class)),
+    plot=TRUE,print.auc=TRUE,col="red",lwd = 4,print.auc.y=0.35,legacy.axes=TRUE,add = TRUE)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+plot(roc.week3,main="ROC curves in diffrent weeks: bank en finacien")
+
+roc(predictor=week3.prob$fail,
+    response=test1$score_class,
+    levels=rev(levels(test1$score_class)),
+    plot=TRUE,print.auc=TRUE,col="blue",lwd = 4,print.auc.y=0.4,legacy.axes=TRUE,add = TRUE)
+
+
+
+legend("bottomright",legend=c("feature set: test grades","feature set: number of times videos opened","feature set: student activities in each week"),col=c("blue","red","green"),lwd = 4)
 
