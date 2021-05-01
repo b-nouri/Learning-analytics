@@ -580,7 +580,6 @@ fviz_cluster(final2, data = df1)
 course1 <- course1 %>%
   mutate(cluster = final1$cluster)
 
-course <- course1
 ###---Train Test Split----###
 course1 <- subset(course1, select=-c(n_event_course))
 set.seed(123)
