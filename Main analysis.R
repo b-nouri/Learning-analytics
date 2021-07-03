@@ -1,16 +1,12 @@
 #---------Load Libraries ------------------------------------
 library(dplyr)
-library(plyr)
 library(tidyverse)
 library(visdat)
-library(stringr)
 library(ggplot2)
 library(lubridate)
 library(caret)
 library(doParallel)
 registerDoParallel(cores=4)
-library(cluster)
-library(factoextra)
 library(pROC)
 #--------Load Data-------------------------------------------
 events <- read.csv("c:/ALCAPAS/Anon_events.dsv",
@@ -349,6 +345,9 @@ sap1 <- sap[sap$course_pk == 888132 &
               sap$final_score > 0 &
               sap$program == "ABA toegepaste economische wetenschappen (Leuv)",]
 
+ggplot(content_df[content_df$course_pk == 888132,],aes(content_type)) +
+  geom_bar()
+
 
 attempt_student1 <- attempt_student[attempt_student$course_pk == 888132 &
                     attempt_student$user_pk %in% sap1$user_pk,]
@@ -584,42 +583,22 @@ rm(c)
 
 
 course1 <- subset(course1, select=-c(course_name))
+
+data.frame(colnames(course1))
+course1 <- course1 %>%
+  mutate(total_days = select(.,n_day_week1:n_day_week18)%>% rowSums(.))
+
+course1 <- course1 %>%
+  mutate(total_videos = select(.,n_times_opened_video1:n_times_opened_video19)%>% rowSums(.))
+
+unique(contents$content_type)
+course1 <- select(course1, -3:-21,-44:-62,-64:-81,-82:-84,-86:-88,-90:-93,-95:-97,-99:-135)
 ###--------Analysis - Forecasting------####
 course1 <- tibble::rowid_to_column(course1, "row")
 course1$final_score <- as.integer(course1$final_score)
 course1 <- subset(course1, select=-c(score_class))
 
-##------Clustering-------###
-df1 <- scale(course1[,3:ncol(course1)])
-distance <- get_dist(df1)
-fviz_dist(distance, gradient = list(low = "#00AFBB", mid = "white", high = "#FC4E07"))
 
-k2 <- kmeans(df1, centers = 4, nstart = 25)
-
-
-fviz_cluster(k2, data = df1)
-
-set.seed(123)
-
-fviz_nbclust(df1, kmeans, method = "wss")
-
-fviz_nbclust(df1, kmeans, method = "silhouette")
-
-
-
-set.seed(123)
-final1 <- kmeans(df1, 2, nstart = 25)
-fviz_cluster(final1, data = df1)
-
-set.seed(123)
-final2 <- kmeans(df1, 5, nstart = 25)
-fviz_cluster(final2, data = df1)
-
-
-course1 <- course1 %>%
-  mutate(cluster = final1$cluster)
-
-course <- course1
 ###---Train Test Split----###
 #course1 <- subset(course1, select=-c(n_event_course))
 set.seed(123)
@@ -636,150 +615,6 @@ id_test1 <- test1[,1:2]
 test_course1 <- test1[,4:ncol(test1)]
 
 ##------Training and predicting----####
-
-#train.control <- trainControl(method="LOOCV")
-
-train.control <- trainControl(method = "repeatedcv",
-                              number = 10, repeats = 3)
-
-
-model1_PR <- train(final_score ~ . , data = train_course1,
-                    method = "parRF", trControl = train.control,metric = "MAE",
-                   importance=T)
-
-# model2_svm <- train(final_score ~ . , data = train_course1,
-#                    method = "svmLinear", trControl = train.control,metric = "MAE")
-# 
-# model3_glm <- train(final_score ~ . , data = train_course1,
-#                          method = "glmStepAIC", trControl = train.control,metric = "MAE")
-
-
-model4_elasticnet <- train(final_score ~ . , data = train_course1,
-                         method = "glmnet", trControl = train.control,metric = "MAE",
-                         preProcess = c())
-
-# model5_xgbTree <- train(final_score ~ . , data = train_course1,
-#                         method = "xgbTree", trControl = train.control,metric = "MAE")
-
-
-model6_gbm <- train(final_score ~ . , data = train_course1,
-                    method = "gbm", trControl = train.control,metric = "MAE")
-
-print(min(model1_PR$results$MAE))
-# print(min(model2_svm$results$MAE))
-# print(min(model3_glm$results$MAE))
-print(min(model4_elasticnet$results$MAE))
-#print(min(model5_xgbTree$results$MAE))
-print(min(model6_gbm$results$MAE))
-
-pred1 <- data.frame(predict(model1_PR, test_course1, type = "raw"))
-# pred2 <- data.frame(predict(model2_svm, test_course1, type = "raw"))
-# pred3 <- data.frame(predict(model3_glm, test_course1, type = "raw"))
-pred4 <- data.frame(predict(model4_elasticnet, test_course1, type = "raw"))
-#pred5 <- data.frame(predict(model5_xgbTree, test_course1, type = "raw"))
-pred6 <- data.frame(predict(model6_gbm, test_course1, type = "raw"))
-
-results <- cbind(id_test1,test1$final_score)
-names(results)[3] <- "actual_final_score"
-# 
-# results <- cbind(results,pred5)
-# names(results)[4] <- "prediction_xgbTree"
-
-results <- cbind(results,pred1,pred4,pred6)
-names(results)[4] <- "prediction_rf"
-#names(results)[5] <- "prediction_svm"
-#names(results)[6] <- "prediction_glm"
-names(results)[5] <- "prediction_glmnet"
-#names(results)[8] <- "prediction_xgbTree"
-names(results)[6] <- "prediction_gbm"
-
-results1 <- results %>%
-  mutate(score_class = cut(as.numeric(results$actual_final_score), breaks=c(0,9.9,21), labels=c( 'pass', 'fail'))) %>%
-  mutate(class_rf = cut(as.numeric(results$prediction_rf), breaks=c(0,9.9,21), labels=c( 'pass', 'fail'))) %>%
-  mutate(class_svm = cut(as.numeric(results$prediction_svm), breaks=c(0,9.9,21), labels=c( 'pass', 'fail'))) %>%
-  mutate(class_glm = cut(as.numeric(results$prediction_glm), breaks=c(0,9.9,21), labels=c( 'pass', 'fail'))) %>%
-  mutate(class_glmnet = cut(as.numeric(results$prediction_glmnet), breaks=c(0,9.9,21), labels=c( 'pass', 'fail'))) %>%
-  mutate(class_xgbtree = cut(as.numeric(results$prediction_xgbTree), breaks=c(0,9.9,21), labels=c( 'pass', 'fail'))) %>%
-  mutate(class_gbm = cut(as.numeric(results$prediction_gbm), breaks=c(0,9.9,21), labels=c( 'pass', 'fail')))
-
-library(cvms)
-conf_matrm <- confusion_matrix(targets = results1$score_class,
-                 predictions = results1$class_rf)
-conf_matsvm <- confusion_matrix(targets = results1$score_class,
-                               predictions = results1$class_svm)
-conf_matglm <- confusion_matrix(targets = results1$score_class,
-                               predictions = results1$class_glm)
-conf_matglmnet <- confusion_matrix(targets = results1$score_class,
-                               predictions = results1$class_glmnet)
-conf_matxbtree <- confusion_matrix(targets = results1$score_class,
-                               predictions = results1$class_xgbtree)
-conf_matgbm <- confusion_matrix(targets = results1$score_class,
-                               predictions = results1$class_gbm)
-
-conf_matrm
-conf_matsvm
-conf_matglm
-conf_matglmnet
-conf_matxbtree
-conf_matgbm
-
-
-
-
-gbmImp <- varImp(model6_gbm, conditional=TRUE)
-gbmImp <- varImp(model6_gbm, scale = FALSE)
-vImpGbm=varImp(model6_gbm)
-gbmImp
-plot(gbmImp, top = 32)
-
-#rm(accuracy1)
-#accuracy1 <- as.data.frame(cbind("rf",mae_test_rf,conf_matrm$`Balanced Accuracy`,conf_matrm$F1))
-#names(accuracy1) <- c("algorithm","mae","accuracy","F1")
-accuracy <- data.frame(c("rf2",mae_test_rf,conf_matrm$`Balanced Accuracy`,conf_matrm$F1),
-                       c("svm2",mae_test_svm,conf_matsvm$`Balanced Accuracy`,conf_matsvm$F1),
-                       c("glm2",mae_test_glm,conf_matglm$`Balanced Accuracy`,conf_matglm$F1),
-                       c("glmnet2",mae_test_glmnet,conf_matglmnet$`Balanced Accuracy`,conf_matglmnet$F1),  
-                       c("xgbtree2",mae_test_xgbTree,conf_matxbtree$`Balanced Accuracy`,conf_matxbtree$F1),  
-                       c("gbm2",mae_test_gbm,conf_matgbm$`Balanced Accuracy`,conf_matgbm$F1))
-accuracy <- data.frame(t(accuracy))
-names(accuracy) <- c("algorithm","mae","accuracy","F1")
-
-accuracy1 <- rbind(accuracy1,accuracy)
-accuracy1 <- accuracy1[1:6,]
-mae_test_rf
-mae_test_svm
-mae_test_glm
-mae_test_glmnet
-mae_test_xgbTree
-mae_test_gbm
-
-results <- results %>%
-  mutate(score_rf =round(prediction_rf,0)) %>%
-  # mutate(score_svm =round(prediction_svm,0)) %>%
-  # mutate(score_glm =round(prediction_glm,0)) %>%
-  mutate(score_glmnet =round(prediction_glmnet,0)) %>%
-  #mutate(score_xgbTree =round(prediction_xgbTree,0)) %>%
-  mutate(score_gbm =round(prediction_gbm,0))
-  
-mae_test_rf <- mean(abs(results$score_rf-results$actual_final_score))
-# mae_test_svm <- mean(abs(results$score_svm-results$actual_final_score))
-# mae_test_glm <- mean(abs(results$score_glm-results$actual_final_score))
-mae_test_glmnet <- mean(abs(results$score_glmnet-results$actual_final_score))
-#mae_test_xgbTree <- mean(abs(results$score_xgbTree-results$actual_final_score))
-mae_test_gbm <- mean(abs(results$score_gbm-results$actual_final_score))
-
-mae_test_rf
-# mae_test_svm
-# mae_test_glm
-mae_test_glmnet
-#mae_test_xgbTree
-mae_test_gbm
-
-gbmImp <- varImp(model2_svm, conditional=TRUE)
-gbmImp
-plot(gbmImp, top = 32)
-
-##------Training and predicting----####
 course1 <- tibble::rowid_to_column(course1, "row")
 set.seed(123)
 
@@ -787,11 +622,10 @@ course1 <- course1 %>%
   mutate(score_class = cut(as.numeric(course1$final_score), breaks=c(0,9.9,21), labels=c( 'fail', 'pass'))) %>%
   mutate(score_class = as.factor(course1$score_class))
 
-#c1 <- course1[course1$cluster==2,]
 c1 <- course1[,]
 
 library(splitstackshape)
-train1 <- stratified(c1, c("score_class"), 0.8)
+train1 <- stratified(c1, c("score_class"), 0.75)
 
 sid<-train1$row
 test1 <- c1[!(c1$row %in% sid),]
@@ -804,35 +638,22 @@ test_course1 <- test1[,4:(ncol(test1)-1)]
 table(train_course1$score_class)
 
 ###-------------Classification------------###
-train.control <- trainControl(method="LOOCV",classProbs = TRUE)
-
 model_weights <- ifelse(train_course1$score_class == "pass",
                         (1/table(train_course1$score_class)[1]) * 0.5,
                         (1/table(train_course1$score_class)[2]) * 0.5)
 
-#train_course1$score_class <- as.factor(train_course1$score_class)
-#train.control <- trainControl(method = "repeatedcv",
-#                              number = 10, repeats = 3,classProbs = TRUE)
+train_course1$score_class <- as.factor(train_course1$score_class)
+train.control <- trainControl(method = "repeatedcv",
+                             number = 10, repeats = 3,classProbs = TRUE)
 
 model1_PR <- train(score_class ~ . , data = train_course1,
                    method = "parRF",   weights = model_weights,
                    trControl = train.control,metric="ROC")
 
-#model2_svm <- train(score_class ~ . , data = train_course1,
-#                    method = "svmLinear", trControl = train.control,metric="ROC")
-
-#model3_glm <- train(score_class ~ . , data = train_course1,
-#                    method = "glmStepAIC", trControl = train.control,metric="ROC",
-#                    preProcess = c("zv", "center", "scale", "pca"))
-
 model4_elasticnet <- train(score_class ~ . , data = train_course1,
                            method = "glmnet", weights = model_weights,
                            trControl = train.control,metric="ROC",
                            preProcess = c())
-
-#model5_xgbTree <- train(score_class ~ . , data = train_course1,
-#                       method = "xgbTree", trControl = train.control,metric="ROC")
-
 
 model6_gbm <- train(score_class ~ . , data = train_course1,
                     method = "gbm", weights = model_weights,
@@ -858,7 +679,6 @@ names(results)[3] <- "prediction_rf"
 names(results)[4] <- "prediction_glmnet"
 names(results)[5] <- "prediction_gbm"
 
-#library (ROCR)
 
 confusionMatrix(results$prediction_rf, reference = as.factor(results$actual_class))
 confusionMatrix(results$prediction_glmnet, reference = as.factor(results$actual_class))
@@ -1534,7 +1354,19 @@ attempt_test_selected <- attempt_student_selected %>% mutate(time = dmy_hms(subm
   mutate(day= day(time)) %>%
   mutate(week = week(time)) %>%
   mutate(academic_week = ifelse(week > 38 & week < 53,(week-38),ifelse(week == 53,14,(52-38 + week)))) %>%
-  mutate(course_week = (academic_week -19))
+  mutate(course_week = (academic_week -19)) %>%
+  filter(course_week <= 18)
+
+ggplot(data= attempt_test_selected, aes(x=course_week)) +
+  geom_histogram() + theme_bw() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 70, vjust = 1, hjust=1)
+  ) +
+  labs(title = "Total Number of tests taken throughtout the semester (repetetion and further attempts of tests also included)",
+       subtitle = "Course Bank- en financiewezen",
+       x = "Academic week", y = "total number of tests taken by students")
+
+
 
 attempt_test_selected1 <- attempt_test_selected[attempt_test_selected$course_week<13,]
 
