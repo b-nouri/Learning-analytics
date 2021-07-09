@@ -1,144 +1,19 @@
-# # #---------Load Libraries ------------------------------------
-# library(tidyverse)
-# library(dplyr)
-# library(visdat)
-# library(lubridate)
-# library(caret)
-# library(doParallel)
-# registerDoParallel(cores=4)
-# library(pROC)
-# 
-# 
-# # #--------Load Data-------------------------------------------
-# events <- read.csv("c:/ALCAPAS/Anon_events.dsv",
-#                    sep="\t", quote = "",na.strings = c("", "NA"))
-# colnames(events) <- c("content_pk", "user_pk", "timestamp")
-# 
-# attempts_ <- read.csv("c:/ALCAPAS/TEW/attempts_Tier4.dsv",
-#                       sep="\t", quote = "",na.strings = c("", "NA"),header = F)
-# 
-# colnames(attempts_) <- c("user_pk", "content_id", "start_date","submit_date",
-#                          "score","grade","first_attempt","last_attempt","highest_attempt","lowest_attempt")
-# attempts <- attempts_[2:nrow(attempts_),1:10]
-# 
-# SAP_ <- read.csv("c:/ALCAPAS/TEW/SAP_Tier4.dsv",
-#                  sep="\t", quote = "",na.strings = c("", "NA"),header = F)
-# 
-# colnames(SAP_) <- SAP_[1,]
-# colnames(SAP_) <- tolower(colnames(SAP_))
-# colnames(SAP_) <- c("opo_id", "course_name","user_pk",
-#                     "type of program","program","ucm_sap","activity_code",
-#                     "current_phase","score_january","score_june",
-#                     "final_score","course_pk")
-# 
-# SAP_$course_pk <- as.integer(SAP_$course_pk)
-# SAP_$final_score <- as.integer(SAP_$final_score)
-# 
-# sap <- SAP_[2:nrow(SAP_),]
-# 
-# 
-# 
-# sessions_ <- read.csv("c:/ALCAPAS/Anon_sessions.dsv",
-#                       sep="\t", quote = "",na.strings = c("", "NA"),header = F)
-# 
-# colnames(sessions_) <- c("session_id", "user_pk", "event_type","timestamp")
-# 
-# #sessions <- sessions_[2:nrow(sessions_),]
-# 
-# contents <- read.csv("c:/ALCAPAS/content_items_with_courses.dsv",
-#                      sep="\t", quote = "",na.strings = c("", "NA"),header = T)
-# 
-# colnames(contents) <- tolower(colnames(contents))
-# colnames(contents)[1] <- "course_pk"
-# colnames(contents)[5] <- "content_pk"
-# 
-# rm(attempts_)
-# rm(sessions_)
-# rm(SAP_)
-# 
-# 
-# ####-----------Preprocessing Data-----------###
-# attempts <- sapply(attempts, function(x) {str_replace_all(x, '"', "")})
-# attempts <- as.data.frame(attempts)
-# 
-# events <- sapply(events, function(x) {str_replace_all(x, '"', "")})
-# events <- as.data.frame(events)
-# 
-# sap <- sapply(sap, function(x) {str_replace_all(x, '"', "")})
-# sap <- as.data.frame(sap)
-# sap <- sap %>%
-#   mutate(campus = str_extract(sap$program,"\\(([^)]*)\\)+$"))
-# levels(as.factor(sap$campus))
-# 
-# sap <- sap %>%
-#   mutate(program_name = gsub("\\(([^)]*)\\)+$","",sap$program))
-# levels(as.factor(sap$program_name))
-# sap$final_score <- as.integer(sap$final_score)
-# 
-# ###------Cleaning data----#########
-# events <- events %>% mutate(time = dmy_hms(timestamp)) %>%
-#   mutate(year = year(time)) %>%
-#   mutate(month = month(time)) %>%
-#   mutate(day= day(time)) %>%
-#   mutate(week = week(time)) %>%
-#   mutate(academic_week = ifelse(week > 38 & week < 53,(week-38),ifelse(week == 53,14,(52-38 + week)))) %>%
-#   mutate(content_pk = as.integer(content_pk))
-# 
-# contents <- contents %>%
-#   arrange(content_pk,id.opo)
-# 
-# 
-# content_df <- distinct(contents, content_pk, .keep_all = TRUE)
-# 
-# event_df <- merge(events,content_df,
-#                  type = "inner", by = "content_pk")
-# 
-# event_df <- merge(event_df,sap,
-#                  type = "inner", by = c("course_pk","user_pk"))
-# 
-# 
-# 
-# attempts <- attempts %>% mutate(time = dmy_hms(submit_date)) %>%
-#   mutate(year = year(time)) %>%
-#   mutate(month = month(time)) %>%
-#   mutate(day= day(time)) %>%
-#   mutate(week = week(time)) %>%
-#   mutate(academic_week = ifelse(week > 38 & week < 53,(week-38),ifelse(week == 53,14,(52-38 + week))))
-# colnames(attempts)[2] <- 'content_pk'
-# attempt_df <- merge(attempts,content_df[,c("content_pk","course_pk","title",
-#                                           "possible_score","content_type")],by="content_pk")
-# 
-# 
-# formative_content <- content_df %>%
-#   filter(content_type == "resource/x-bb-asmt-test-link" |
-#            content_type == "resource/x-bb-assignment" |
-#            content_type == "resource/x-turnitin-assignment" | content_type == "resource/x-osv-kaltura/mashup" |
-#            content_type == "resource/x-plugin-scormengine") %>%
-#   mutate(test_score_type = ifelse((is.na(possible_score) | possible_score == 0 )& content_type != "resource/x-turnitin-assignment","Video Content",
-#                                   ifelse(is.na(possible_score) & content_type == "resource/x-turnitin-assignment","turnitin assignment (grade unknown)",
-#                                          ifelse(content_type == "resource/x-bb-asmt-test-link","graded test","graded other format (grade unknown)"))))
 
-##------Set working directory and master data-------#######
-#for (i in c(5,7,9,12,18)){
-until_week = 12
-course_id = 888132
-setwd(paste0('C:\\Thesis\\course1-bank-en-financien\\week1-',until_week))
+until_week = 19
+course_id = 888131
+setwd(paste0('C:\\Thesis\\course3-marketing\\week1-',until_week))
 
 
 ###----Select Course----###
-attempt_df <- attempt_df2
-
 attempt_df <- attempt_df[attempt_df$course_pk == course_id,]
-
-content_df <- content_df2
-
 content_df <- content_df[content_df$course_pk == course_id,]
-event_df <- event_df[event_df$course_pk == course_id,]
+event_df2 <- event_df
+event_df <- event_df2[event_df2$course_pk == course_id,]
 sap1 <- sap[sap$course_pk == course_id &
-              sap$final_score > 0 &
+              sap$final_score > 0 & sap$current_phase == 'eerste fase' &
               sap$program == "ABA toegepaste economische wetenschappen (Leuv)",]
 
-
+sap$final_score <- as.integer(sap$final_score)
 formative_content1 <- formative_content[formative_content$course_pk == course_id,]
 
 
@@ -187,11 +62,11 @@ event_course <- event %>%
   group_by(user_pk,course_pk) %>%
   dplyr::summarise(n_event_sofar = n())
 
+
+
 #-----preparing features - feature engineering---###
 
 attempt_student1 <- attempt_student[attempt_student$user_pk %in% sap1$user_pk,]
-
-sap1$final_score <- as.integer(sap1$final_score)
 
 
 course1 <- sap1 %>%
@@ -201,6 +76,19 @@ course1 <- sap1 %>%
 
 student_list <- as.data.frame(course1$user_pk)
 colnames(student_list)[1] <- "user_pk"
+
+##-----export video and test names------######
+video1 <- content_df[content_df$content_type %in% c('resource/x-osv-kaltura/mashup',
+                                                    'resource/x-bb-toollink'),c('content_type','title','content_pk')]
+
+video_event1 <- event[event$user_pk %in% sap1$user_pk &
+                        event$content_pk %in% video1$content_pk,]
+
+c <- unique(video_event1[,c("content_pk","title","content_type")])  %>%
+  arrange(content_pk)
+
+write_xlsx(c, "video-feature-names.xlsx")
+
 
 
 ####-------Video Related features-------####
@@ -267,13 +155,13 @@ c <- attempt_student1 %>%
 
 test_so_far <- merge(student_list,c,by="user_pk",all.x = TRUE)
 test_so_far$percentage_tests_completed <- replace(test_so_far$percentage_tests_completed,
-                                          is.na(test_so_far$percentage_tests_completed), 0)
+                                                  is.na(test_so_far$percentage_tests_completed), 0)
 
 test_so_far$total_test_tries <- replace(test_so_far$total_test_tries,
-                                          is.na(test_so_far$total_test_tries), 0)
+                                        is.na(test_so_far$total_test_tries), 0)
 
 test_features <- colnames(test_so_far)
-course1 <- merge(course1,test_so_far,by="user_pk",all.x = TRUE)
+#course1 <- merge(course1,test_so_far,by="user_pk",all.x = TRUE)
 
 c <- attempt_student1 %>%
   distinct(content_pk)
@@ -287,7 +175,7 @@ b <- attempt_student1 %>%
 b <- b %>% rename_at(vars(c$content_pk), ~ paste0('grade_test', 1:length(c$content_pk)))
 
 test_features <- append(test_features,colnames(b))
-course1 <- merge(course1,b,by="user_pk",all.x = TRUE)
+#course1 <- merge(course1,b,by="user_pk",all.x = TRUE)
 
 
 library(lares)
@@ -300,7 +188,7 @@ b <- attempt_student1 %>%
   dplyr::summarise(average_test_score = mean(test_percentage),sum_highest_test_scores = sum(highest))
 
 test_features <- append(test_features,colnames(b))
-course1 <- merge(course1,b,by="user_pk",all.x = TRUE)
+#course1 <- merge(course1,b,by="user_pk",all.x = TRUE)
 
 test_features <- test_features[-grep("user_pk", test_features)]
 
@@ -353,7 +241,7 @@ c <- c %>%
   slice(n()) %>%
   mutate(longest_time_inactive = ifelse(max_days_between_events == -1 ,NA, as.integer(max_days_between_events))) %>%
   select(longest_time_inactive)
-  
+
 
 course1 <- merge(course1,c,'user_pk')
 
@@ -420,6 +308,7 @@ b <- event[event$content_type == 'resource/x-bb-document',] %>%
 
 course1 <- merge(course1,b,'user_pk')
 
+
 ####-------Export plots-----------######
 
 svg(file = "missing-values.svg", height=8.27, width=11.69)
@@ -444,14 +333,14 @@ tot <- nrow(test_cels) * ncol(test_cels)
 percent_na <- na/tot * 100
 
 if (percent_na > 34){
-    course1<-course1[,!(colnames(course1) %in% test_features)]
-  } else {
-     
+  course1<-course1[,!(colnames(course1) %in% test_features)]
+} else {
+  
   for (col in test_features) {
-      course1[,colnames(course1) == col] <- replace(course1[,colnames(course1) == col],
-                                                    is.na(course1[,colnames(course1) == col]), median(course1[,colnames(course1) == col],na.rm = T))
-    }
+    course1[,colnames(course1) == col] <- replace(course1[,colnames(course1) == col],
+                                                  is.na(course1[,colnames(course1) == col]), median(course1[,colnames(course1) == col],na.rm = T))
   }
+}
 
 # course1$grade_test1 <- replace(course1$grade_test1, is.na(course1$grade_test1), median(course1$grade_test1,na.rm = T))
 # course1$grade_test2 <- replace(course1$grade_test2, is.na(course1$grade_test2), median(course1$grade_test2,na.rm = T))
@@ -513,7 +402,7 @@ course1 <- tibble::rowid_to_column(course1, "row")
 set.seed(123)
 
 course1 <- course1 %>%
-   mutate(final_score= ifelse(course1$final_score == 1 , 'pass','fail'))
+  mutate(final_score= ifelse(course1$final_score == 1 , 'pass','fail'))
 
 c1 <- course1[,]
 
@@ -535,7 +424,6 @@ test_with_target <- test[,4:(ncol(test))]
 
 id_test1 <- test[,1:2]
 test_course1 <- test[,5:(ncol(test))]
-course1$final_score <- as.factor(course1$final_score)
 table(train_course1$final_score)
 ##-------------Classification------------###
 # model_weights <- ifelse(train_course1$final_score == "pass",
@@ -553,30 +441,30 @@ train.control <- trainControl(method = "repeatedcv",
 #                              classProbs = TRUE)
 mtry <- floor(sqrt(ncol(train_course1)))
 tunegrid <- expand.grid(
-   mtry =  (mtry:10)                                    
+  mtry =  (mtry:10)                                    
   ,splitrule = "gini"
   ,min.node.size = c(10,15,20,25)
 )
 registerDoParallel(cores=4)
 
 model1 <- train(final_score ~ . , data = train_course1,
-                   method = "ranger",
-                   tuneGrid=tunegrid,
-                   tuneLength=15,
-                   importance = "impurity",
-                   trControl = train.control)
+                method = "ranger",
+                tuneGrid=tunegrid,
+                tuneLength=15,
+                importance = "impurity",
+                trControl = train.control)
 
-lambda_grid <- seq(0, 3, 0.1)
+lambda_grid <- seq(0, 1, 0.1)
 alpha_grid <- seq(0, 1, 0.1)
 
 srchGrid <- expand.grid(.alpha = alpha_grid, .lambda = lambda_grid)
 
 
 model2 <- train(final_score ~ . , data = train_course1,
-                           method = "glmnet",
-                           trControl = train.control,
-                           tuneGrid = srchGrid,
-                           preProcess = c("center", "scale", "YeoJohnson", "nzv"))
+                method = "glmnet",
+                trControl = train.control,
+                tuneGrid = srchGrid,
+                preProcess = c("center", "scale", "YeoJohnson", "nzv"))
 
 
 
@@ -588,25 +476,19 @@ grid <- expand.grid(interaction.depth=c(1,2), # Depth of variable interactions
 
 
 model3 <- train(final_score ~ . , data = train_course1,
-                    method = "gbm",
-                    tuneGrid=grid,
-                    trControl = train.control, verbose = FALSE)
+                method = "gbm",
+                tuneGrid=grid,
+                trControl = train.control, verbose = FALSE)
 
 
 model4 <- train(final_score ~ . , data = train_course1,
                 method = "svmRadial",
-                preProcess = c("center", "scale", "nzv"),
                 trControl = train.control, verbose = FALSE)
-
-
-###------PCA------####
-wdbc.pr <- prcomp(course1[,5:ncol(course1)], center = TRUE, scale = TRUE)
-summary(wdbc.pr)
 
 model5 <- train(final_score ~ . , data = train_course1,
                 method = "glmnet",
                 trControl = train.control,
-                preProcess = c("center", "scale", "nzv",'pca',"YeoJohnson"))
+                preProcess = c("center", "scale", "YeoJohnson", "nzv",'pca'))
 
 print(max(model1$results$Accuracy))
 print(max(model2$results$Accuracy))
@@ -635,7 +517,7 @@ rm(results)
 results <- cbind(id_test1$user_pk,as.character(test$final_score))
 
 
-results <- as.data.frame(cbind.data.frame(results,
+results <- as.data.frame(cbind(results,
                                pred1$prediction_rf,pred2$prediction_glmnet,pred3$prediction_gbm,pred4$prediction_svm,pred5$prediction_pcr))
 names(results)[2] <- "actual_class"
 names(results)[3] <- "prediction_rf"
@@ -680,7 +562,7 @@ b <- data.frame(macroPrecision, macroRecall, macroF1)
 colnames(b) <- colnames(a)
 
 ddf1 <- rbind(a, b) %>%
-         tibble::rownames_to_column( "VALUE")
+  tibble::rownames_to_column( "VALUE")
 
 ddf1[1,1] <- 'fail-model1 - RF'
 ddf1[2,1] <- 'pass-model1 - RF'
@@ -887,7 +769,7 @@ a <- as.tibble(imp1$importance) %>%
   mutate(color = ifelse(v_type=='Video Related',"#006633", color)) %>%
   mutate(color = ifelse(v_type=='Document Related',"#003399", color)) %>%
   mutate(color = ifelse(v_type=='Procrastination Related',"#CC9900", color))
-  
+
 
 names(a)[1] <- 'v_importance'
 b <- a %>%
@@ -1088,5 +970,3 @@ detach("package:ranger", unload=TRUE)
 # 
 # dev.off()
 # #library(ggthemes) # Load
-
-data.frame(colnames(train_course1))

@@ -8,8 +8,7 @@ library(doParallel)
 registerDoParallel(cores=4)
 library(pROC)
 library("writexl")
-library(caret)
-      # a faster implementation of randomForest
+library(caret) #a faster implementation of randomForest
 
 #--------Load Data-------------------------------------------
 events <- read.csv("c:/ALCAPAS/Anon_events.dsv",
@@ -39,13 +38,11 @@ SAP_$final_score <- as.integer(SAP_$final_score)
 sap <- SAP_[2:nrow(SAP_),]
 
 
+# colnames(SAP_) <- c("course_pk","opo_id", "course_name","user_pk",
+#                     "type of program","program",
+#                     "current_phase","score_january","score_june",
+#                     "final_score")
 
-sessions_ <- read.csv("c:/ALCAPAS/Anon_sessions.dsv",
-                      sep="\t", quote = "",na.strings = c("", "NA"),header = F)
-
-colnames(sessions_) <- c("session_id", "user_pk", "event_type","timestamp")
-
-#sessions <- sessions_[2:nrow(sessions_),]
 
 contents <- read.csv("c:/ALCAPAS/content_items_with_courses.dsv",
                      sep="\t", quote = "",na.strings = c("", "NA"),header = T)
@@ -57,7 +54,6 @@ colnames(contents)[5] <- "content_pk"
 rm(attempts_)
 rm(sessions_)
 rm(SAP_)
-
 
 ####-----------Preprocessing Data-----------###
 attempts <- sapply(attempts, function(x) {str_replace_all(x, '"', "")})
@@ -75,7 +71,6 @@ levels(as.factor(sap$campus))
 sap <- sap %>%
   mutate(program_name = gsub("\\(([^)]*)\\)+$","",sap$program))
 levels(as.factor(sap$program_name))
-sap$final_score <- as.integer(sap$final_score)
 
 ###------Cleaning data----#########
 events <- events %>% mutate(time = dmy_hms(timestamp)) %>%
@@ -92,13 +87,14 @@ contents <- contents %>%
 
 content_df <- distinct(contents, content_pk, .keep_all = TRUE)
 
+
 event_df <- merge(events,content_df,
-                  type = "inner", by = "content_pk")
+                 type = "inner", by = "content_pk")
 
 event_df <- merge(event_df,sap,
-                  type = "inner", by = c("course_pk","user_pk"))
+                 type = "inner", by = c("course_pk","user_pk"))
 
-
+event_df2 <- event_df
 
 attempts <- attempts %>% mutate(time = dmy_hms(submit_date)) %>%
   mutate(year = year(time)) %>%
@@ -119,3 +115,8 @@ formative_content <- content_df %>%
   mutate(test_score_type = ifelse((is.na(possible_score) | possible_score == 0 )& content_type != "resource/x-turnitin-assignment","Video Content",
                                   ifelse(is.na(possible_score) & content_type == "resource/x-turnitin-assignment","turnitin assignment (grade unknown)",
                                          ifelse(content_type == "resource/x-bb-asmt-test-link","graded test","graded other format (grade unknown)"))))
+
+
+content_df2 <- content_df
+attempt_df2 <- attempt_df
+
